@@ -1,0 +1,21 @@
+[project]
+name = "garage-cosmohack26"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Buglover333", email = "tchajv@yandex.ru" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.141.1",
+    "numpy>=2.5.3",
+    "uvicorn>=0.52.4",
+]
+
+[project.scripts]
+garage-cosmohack26 = "garage_cosmohack26:main"
+
+[build-system]
+requires = ["uv_build>=0.12.6,<0.13.0"]
+build-backend = "uv_build"
