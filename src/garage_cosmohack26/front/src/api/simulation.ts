@@ -28,6 +28,15 @@ export interface ScenarioDto {
   gateway_outages: Array<Record<string, unknown>>;
 }
 
+export interface ConfigSummaryDto {
+  id: string;
+  title: string;
+  is_example: boolean;
+  satellites: number;
+  ground_sites: number;
+  updated_at: number;
+}
+
 interface TelemetryDto {
   t_s: number;
   horizon_s: number;
@@ -72,6 +81,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const simulationApi = {
+  getConfigs: () => request<ConfigSummaryDto[]>('/api/configs'),
+  loadScenario: (id: string) => request<{ loaded: string }>(
+    `/api/scenario/load/${encodeURIComponent(id)}`,
+    { method: 'POST' },
+  ),
   getScenario: () => request<{ meta: { config_id: string | null }; scenario: ScenarioDto }>('/api/scenario'),
   replaceScenario: (scenario: ScenarioDto) => request('/api/scenario', {
     method: 'PUT',

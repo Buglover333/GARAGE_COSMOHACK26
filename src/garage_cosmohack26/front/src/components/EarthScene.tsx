@@ -68,6 +68,7 @@ export const EarthScene = forwardRef<EarthSceneHandle, EarthSceneProps>(({
   const routePulseRef = useRef<THREE.Mesh | null>(null);
   const routePointsRef = useRef<THREE.Vector3[]>([]);
   const routePulsePhaseRef = useRef(0);
+  const updateProjectedLabelsRef = useRef<() => void>(() => undefined);
 
   // Cached computed satellites
   const satellitesDataRef = useRef<Satellite[]>([]);
@@ -84,6 +85,70 @@ export const EarthScene = forwardRef<EarthSceneHandle, EarthSceneProps>(({
   }>>([]);
 
   const [hoveredEntity, setHoveredEntity] = useState<string | null>(null);
+
+  updateProjectedLabelsRef.current = () => {
+    if (!cameraRef.current || !containerRef.current) return;
+
+    const cam = cameraRef.current;
+    const w = containerRef.current.clientWidth;
+    const h = containerRef.current.clientHeight;
+    const labelsList: typeof projectedLabels = [];
+
+    cam.updateMatrixWorld();
+
+    groundStations.forEach(station => {
+      const [x, y, z] = latLonToVector3(
+        station.lat,
+        station.lon,
+        EARTH_RADIUS_SCENE * 1.002,
+      );
+      const pos = new THREE.Vector3(x, y, z);
+      const camDir = new THREE.Vector3().subVectors(cam.position, pos).normalize();
+      const normal = pos.clone().normalize();
+      const isFacing = normal.dot(camDir) > 0.12;
+
+      pos.project(cam);
+      if (pos.z < 1.0 && isFacing) {
+        labelsList.push({
+          id: station.id,
+          text: station.name,
+          x: ((pos.x + 1) * w) / 2,
+          y: ((-pos.y + 1) * h) / 2,
+          visible: true,
+          type: station.type === 'gateway' ? 'gateway' : 'client',
+          subtext: `${station.lat.toFixed(1)}°, ${station.lon.toFixed(1)}°`,
+        });
+      }
+    });
+
+    satellites.forEach(satellite => {
+      if (
+        satellite.status !== 'in_route'
+        && satellite.status !== 'offline'
+        && satellite.id !== selectedSatelliteId
+      ) return;
+
+      const pos = new THREE.Vector3(...satellite.position);
+      const camDir = new THREE.Vector3().subVectors(cam.position, pos).normalize();
+      const normal = pos.clone().normalize();
+      const isFacing = normal.dot(camDir) > -0.1;
+
+      pos.project(cam);
+      if (pos.z < 1.0 && isFacing) {
+        labelsList.push({
+          id: satellite.id,
+          text: satellite.id,
+          x: ((pos.x + 1) * w) / 2,
+          y: ((-pos.y + 1) * h) / 2,
+          visible: true,
+          type: satellite.status === 'offline' ? 'fault-sat' : 'route-sat',
+          subtext: satellite.status === 'offline' ? 'Отказ' : 'В маршруте',
+        });
+      }
+    });
+
+    setProjectedLabels(labelsList);
+  };
 
   // Initialize Three.js scene once
   useEffect(() => {
@@ -124,6 +189,8 @@ export const EarthScene = forwardRef<EarthSceneHandle, EarthSceneProps>(({
     controls.target.set(0, 0, 0);
     controls.maxPolarAngle = Math.PI * 0.95;
     controlsRef.current = controls;
+    const handleCameraChange = () => updateProjectedLabelsRef.current();
+    controls.addEventListener('change', handleCameraChange);
 
     // 5. Starfield background
     const starfieldCanvas = createStarfieldCanvas(2048, 1024);
@@ -205,6 +272,7 @@ export const EarthScene = forwardRef<EarthSceneHandle, EarthSceneProps>(({
       cameraRef.current.aspect = w / h;
       cameraRef.current.updateProjectionMatrix();
       rendererRef.current.setSize(w, h);
+      updateProjectedLabelsRef.current();
     };
     window.addEventListener('resize', handleResize);
 
@@ -246,6 +314,7 @@ export const EarthScene = forwardRef<EarthSceneHandle, EarthSceneProps>(({
 
     return () => {
       window.removeEventListener('resize', handleResize);
+      controls.removeEventListener('change', handleCameraChange);
       cancelAnimationFrame(animationFrameId);
       timer.dispose();
       if (rendererRef.current) {
@@ -565,69 +634,11 @@ export const EarthScene = forwardRef<EarthSceneHandle, EarthSceneProps>(({
       });
     }
 
-    // 5. Compute Projected 2D screen positions for labels
-    if (cameraRef.current && containerRef.current) {
-      const cam = cameraRef.current;
-      const w = containerRef.current.clientWidth;
-      const h = containerRef.current.clientHeight;
-      const labelsList: typeof projectedLabels = [];
-
-      // Project Ground Stations
-      groundStations.forEach(st => {
-        const [x, y, z] = latLonToVector3(st.lat, st.lon, EARTH_RADIUS_SCENE * 1.002);
-        const pos = new THREE.Vector3(x, y, z);
-
-        // Check if on visible side of Earth (dot product with camera direction > 0)
-        const camDir = new THREE.Vector3().subVectors(cam.position, pos).normalize();
-        const normal = pos.clone().normalize();
-        const isFacing = normal.dot(camDir) > 0.12;
-
-        pos.project(cam);
-        const screenX = ((pos.x + 1) * w) / 2;
-        const screenY = ((-pos.y + 1) * h) / 2;
-
-        if (pos.z < 1.0 && isFacing) {
-          labelsList.push({
-            id: st.id,
-            text: st.name,
-            x: screenX,
-            y: screenY,
-            visible: true,
-            type: st.type === 'gateway' ? 'gateway' : 'client',
-            subtext: `${st.lat.toFixed(1)}°, ${st.lon.toFixed(1)}°`,
-          });
-        }
-      });
-
-      // Project In-Route and Faulty Satellites
-      sats.forEach(sat => {
-        if (sat.status === 'in_route' || sat.status === 'offline' || sat.id === selectedSatelliteId) {
-          const pos = new THREE.Vector3(...sat.position);
-          const camDir = new THREE.Vector3().subVectors(cam.position, pos).normalize();
-          const normal = pos.clone().normalize();
-          const isFacing = normal.dot(camDir) > -0.1;
-
-          pos.project(cam);
-          const screenX = ((pos.x + 1) * w) / 2;
-          const screenY = ((-pos.y + 1) * h) / 2;
-
-          if (pos.z < 1.0 && isFacing) {
-            labelsList.push({
-              id: sat.id,
-              text: sat.id,
-              x: screenX,
-              y: screenY,
-              visible: true,
-              type: sat.status === 'offline' ? 'fault-sat' : 'route-sat',
-              subtext: sat.status === 'offline' ? 'Отказ' : 'В маршруте',
-            });
-          }
-        }
-      });
-
-      setProjectedLabels(labelsList);
-    }
   }, [satellites, groundStations, activeRoute, selectedSatelliteId, selectedStationId, layers.showCoverageCones]);
+
+  useEffect(() => {
+    updateProjectedLabelsRef.current();
+  }, [satellites, groundStations, selectedSatelliteId, layers.showLabels]);
 
   // Raycasting for click and hover interactions
   const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
@@ -738,7 +749,7 @@ export const EarthScene = forwardRef<EarthSceneHandle, EarthSceneProps>(({
             style={{
               transform: `translate(${label.x}px, ${label.y}px) translate(-50%, -120%)`,
             }}
-            className="absolute top-0 left-0 pointer-events-none transition-all duration-75 select-none z-10"
+            className="absolute top-0 left-0 pointer-events-none select-none z-10"
           >
             <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-md border backdrop-blur-md text-xs font-tech font-semibold tracking-wide ${badgeStyle}`}>
               <span className={`w-2 h-2 rounded-full ${dotColor}`} />

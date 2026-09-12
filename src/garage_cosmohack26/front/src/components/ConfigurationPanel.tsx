@@ -23,7 +23,7 @@ interface ConfigurationPanelProps {
   satellites: Satellite[];
   simulationTime: number;
   onFocusSatellite: (satId: string) => void;
-  onEditPlanes: () => void;
+  onEditConfig: () => void;
   lang: 'ru' | 'en';
 }
 
@@ -32,7 +32,7 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   satellites,
   simulationTime,
   onFocusSatellite,
-  onEditPlanes,
+  onEditConfig,
   lang
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -191,11 +191,11 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                 </div>
               </div>
               <button
-                onClick={onEditPlanes}
+                onClick={onEditConfig}
                 className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-cyan-500/50 text-xs font-semibold text-slate-200"
               >
                 <Settings2 className="w-3.5 h-3.5 text-cyan-400" />
-                {lang === 'ru' ? 'Настроить плоскости' : 'Configure planes'}
+                {lang === 'ru' ? 'Настроить конфигурацию' : 'Configure project'}
               </button>
             </div>
 

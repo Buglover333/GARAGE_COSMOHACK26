@@ -1,18 +1,42 @@
-import { useState } from 'react';
-import { ChevronDown, FileUp, Maximize2, Minimize2, Orbit, Plus } from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { ChevronDown, FolderOpen, Maximize2, Minimize2, Orbit, Plus } from 'lucide-react';
+import { ConfigSummaryDto } from '../api/simulation';
 import { ConstellationConfig, SimulationTime } from '../types/simulation';
 import { formatTimeSeconds } from '../utils/orbitalMechanics';
 
 interface Props {
   config: ConstellationConfig | null;
+  savedConfigs: ConfigSummaryDto[];
   simulationTime: SimulationTime;
-  onCreateProject: (mode: 'manual' | 'file') => void;
+  loadingConfigId: string | null;
+  onCreateProject: () => void;
+  onLoadProject: (id: string) => void;
   lang: 'ru' | 'en';
 }
 
-export const Header = ({ config, simulationTime, onCreateProject, lang }: Props) => {
-  const [menuOpen, setMenuOpen] = useState(false);
+export const Header = ({
+  config,
+  savedConfigs,
+  simulationTime,
+  loadingConfigId,
+  onCreateProject,
+  onLoadProject,
+  lang,
+}: Props) => {
   const [fullscreen, setFullscreen] = useState(false);
+  const [isProjectMenuOpen, setIsProjectMenuOpen] = useState(false);
+  const projectMenuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!isProjectMenuOpen) return;
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (!projectMenuRef.current?.contains(event.target as Node)) {
+        setIsProjectMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    return () => document.removeEventListener('mousedown', closeOnOutsideClick);
+  }, [isProjectMenuOpen]);
 
   const toggleFullscreen = () => {
     if (!document.fullscreenElement) {
@@ -20,11 +44,6 @@ export const Header = ({ config, simulationTime, onCreateProject, lang }: Props)
     } else {
       void document.exitFullscreen().then(() => setFullscreen(false));
     }
-  };
-
-  const choose = (mode: 'manual' | 'file') => {
-    setMenuOpen(false);
-    onCreateProject(mode);
   };
 
   return <header className="absolute top-0 left-0 right-0 z-30 flex items-center justify-between px-6 py-3.5 bg-gradient-to-b from-slate-950/90 via-slate-950/60 to-transparent backdrop-blur-sm pointer-events-auto select-none border-b border-white/5">
@@ -39,21 +58,70 @@ export const Header = ({ config, simulationTime, onCreateProject, lang }: Props)
         </div>
       </div>
 
-      <div className="relative ml-2">
-        <button onClick={() => setMenuOpen(!menuOpen)} className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700/70 text-xs text-slate-200">
+      <div ref={projectMenuRef} className="relative ml-2">
+        <button
+          onClick={() => setIsProjectMenuOpen(previous => !previous)}
+          aria-expanded={isProjectMenuOpen}
+          className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700/70 text-xs text-slate-200"
+        >
           <span className="text-slate-400">{lang === 'ru' ? 'Проект:' : 'Project:'}</span>
           <span className="font-semibold text-white">{config?.name ?? (lang === 'ru' ? 'не создан' : 'not created')}</span>
-          <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+          <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${isProjectMenuOpen ? 'rotate-180' : ''}`} />
         </button>
-        {menuOpen && <div className="absolute left-0 mt-1.5 w-64 rounded-xl bg-slate-900/95 border border-slate-700 shadow-2xl py-1 z-50">
-          <div className="px-3 py-2 text-[11px] uppercase tracking-wider text-slate-400 border-b border-slate-800">{lang === 'ru' ? 'Новый проект' : 'New project'}</div>
-          <button onClick={() => choose('manual')} className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs text-slate-200 hover:bg-slate-800">
-            <Plus className="w-4 h-4 text-cyan-400" />{lang === 'ru' ? 'Создать вручную' : 'Create manually'}
-          </button>
-          <button onClick={() => choose('file')} className="w-full flex items-center gap-2 px-3 py-2.5 text-left text-xs text-slate-200 hover:bg-slate-800">
-            <FileUp className="w-4 h-4 text-emerald-400" />{lang === 'ru' ? 'Создать из файла' : 'Create from file'}
-          </button>
-        </div>}
+
+        {isProjectMenuOpen && (
+          <div className="absolute top-full left-0 mt-2 w-80 overflow-hidden rounded-xl border border-slate-700/80 bg-slate-950/95 shadow-2xl shadow-black/60 backdrop-blur-xl">
+            <div className="px-3 py-2.5 border-b border-slate-800 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+              {lang === 'ru' ? 'Сохранённые конфигурации' : 'Saved configurations'}
+            </div>
+            <div className="max-h-72 overflow-y-auto p-1.5">
+              {savedConfigs.length === 0 ? (
+                <div className="px-3 py-5 text-center text-xs text-slate-500">
+                  {lang === 'ru' ? 'Сохранённых конфигураций нет' : 'No saved configurations'}
+                </div>
+              ) : savedConfigs.map(item => {
+                const isActive = item.id === config?.id;
+                const isLoading = item.id === loadingConfigId;
+                return (
+                  <button
+                    key={item.id}
+                    type="button"
+                    disabled={loadingConfigId !== null}
+                    onClick={() => {
+                      setIsProjectMenuOpen(false);
+                      onLoadProject(item.id);
+                    }}
+                    className={`w-full flex items-start gap-2.5 rounded-lg px-3 py-2.5 text-left disabled:opacity-50 ${isActive ? 'bg-cyan-950/60 border border-cyan-800/60' : 'border border-transparent hover:bg-slate-800/80'}`}
+                  >
+                    <FolderOpen className={`mt-0.5 w-4 h-4 shrink-0 ${isActive ? 'text-cyan-400' : 'text-slate-500'}`} />
+                    <span className="min-w-0 flex-1">
+                      <span className="flex items-center gap-2">
+                        <span className="truncate text-xs font-medium text-slate-100">{item.title || item.id}</span>
+                        {item.is_example && <span className="rounded bg-slate-800 px-1.5 py-0.5 text-[9px] text-slate-400">пример</span>}
+                      </span>
+                      <span className="mt-0.5 block truncate text-[10px] text-slate-500">
+                        {isLoading ? 'Загрузка…' : `${item.id} · ${item.satellites} спутников · ${item.ground_sites} пунктов`}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="border-t border-slate-800 p-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setIsProjectMenuOpen(false);
+                  onCreateProject();
+                }}
+                className="w-full flex items-center gap-2 rounded-lg px-3 py-2.5 text-xs font-medium text-cyan-300 hover:bg-cyan-950/50"
+              >
+                <Plus className="w-4 h-4" />
+                {lang === 'ru' ? 'Создать новый проект' : 'Create new project'}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
 

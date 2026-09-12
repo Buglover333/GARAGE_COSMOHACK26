@@ -9,9 +9,8 @@ import { ViewControlsOverlay } from './components/ViewControlsOverlay';
 import { RouteInspectorModal } from './components/RouteInspectorModal';
 import { SatelliteDetailPopup } from './components/SatelliteDetailPopup';
 import { CreateProjectModal } from './components/CreateProjectModal';
-import { PlaneEditorModal } from './components/PlaneEditorModal';
 import { CommunicationRoute, ConstellationConfig, GroundStation, Satellite, SceneLayers, SimulationTime } from './types/simulation';
-import { PlaneDto, ScenarioDto, simulationApi, toConfig, toRoutes, toSatellites, toStations } from './api/simulation';
+import { ConfigSummaryDto, ScenarioDto, simulationApi, toConfig, toRoutes, toSatellites, toStations } from './api/simulation';
 
 export default function App() {
   const [config, setConfig] = useState<ConstellationConfig | null>(null);
@@ -31,15 +30,31 @@ export default function App() {
   const [frameTimeSeconds, setFrameTimeSeconds] = useState(0);
   const [layers, setLayers] = useState<SceneLayers>({ showOrbits: true, showCoverageCones: false, showLabels: true });
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
-  const [createMode, setCreateMode] = useState<'manual' | 'file'>('manual');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
-  const [isPlaneEditorOpen, setIsPlaneEditorOpen] = useState(false);
+  const [modalScenario, setModalScenario] = useState<ScenarioDto | null>(null);
+  const [savedConfigs, setSavedConfigs] = useState<ConfigSummaryDto[]>([]);
+  const [loadingConfigId, setLoadingConfigId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const earthSceneRef = useRef<EarthSceneHandle>(null);
   const scenarioRef = useRef<ScenarioDto | null>(null);
   const activeRouteIdRef = useRef<string | null>(null);
   const renderedStepRef = useRef<number | null>(null);
   const requestedSeekRef = useRef<number | null>(null);
+
+  const refreshConfigLibrary = useCallback(async () => {
+    const configs = await simulationApi.getConfigs();
+    // The bundled example can also exist in the writable directory. Keep the
+    // first item because that is the same precedence used by the backend loader.
+    setSavedConfigs(configs.filter((item, index) => (
+      configs.findIndex(candidate => candidate.id === item.id) === index
+    )));
+  }, []);
+
+  useEffect(() => {
+    void refreshConfigLibrary().catch(cause => (
+      setError(cause instanceof Error ? cause.message : String(cause))
+    ));
+  }, [refreshConfigLibrary]);
 
   const refreshFrames = useCallback(async (force = false) => {
     const currentScenario = scenarioRef.current;
@@ -162,24 +177,26 @@ export default function App() {
     await applyScenario(response.scenario);
     renderedStepRef.current = null;
     await refreshFrames(true);
-  }, [applyScenario, refreshFrames, simulationTime.speed]);
+    await refreshConfigLibrary();
+  }, [applyScenario, refreshConfigLibrary, refreshFrames, simulationTime.speed]);
 
-  const updatePlanes = useCallback(async (planes: PlaneDto[]) => {
-    const currentScenario = scenarioRef.current;
-    if (!currentScenario) throw new Error('Сначала создайте или загрузите проект');
-    const updatedScenario: ScenarioDto = {
-      ...currentScenario,
-      design: { ...currentScenario.design, planes },
-    };
+  const loadProject = useCallback(async (id: string) => {
     setError(null);
-    await simulationApi.replaceScenario(updatedScenario);
-    await simulationApi.saveScenario(updatedScenario.meta.id, updatedScenario.meta.title);
-    await simulationApi.patchScenario({ playback: simulationTime.speed });
-    const response = await simulationApi.getScenario();
-    await applyScenario(response.scenario);
-    renderedStepRef.current = null;
-    setSelectedSatellite(null);
-    await refreshFrames(true);
+    setLoadingConfigId(id);
+    try {
+      await simulationApi.loadScenario(id);
+      await simulationApi.patchScenario({ playback: simulationTime.speed });
+      const response = await simulationApi.getScenario();
+      activeRouteIdRef.current = null;
+      renderedStepRef.current = null;
+      setSelectedSatellite(null);
+      await applyScenario(response.scenario);
+      await refreshFrames(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setLoadingConfigId(null);
+    }
   }, [applyScenario, refreshFrames, simulationTime.speed]);
 
   return (
@@ -199,11 +216,14 @@ export default function App() {
       />
       <Header
         config={config}
+        savedConfigs={savedConfigs}
         simulationTime={simulationTime}
-        onCreateProject={mode => {
-          setCreateMode(mode);
+        loadingConfigId={loadingConfigId}
+        onCreateProject={() => {
+          setModalScenario(null);
           setIsCreateModalOpen(true);
         }}
+        onLoadProject={id => void loadProject(id)}
         lang="ru"
       />
       <ConfigurationPanel
@@ -211,7 +231,10 @@ export default function App() {
         satellites={satellites}
         simulationTime={simulationTime.timeSeconds}
         onFocusSatellite={focusSatellite}
-        onEditPlanes={() => setIsPlaneEditorOpen(true)}
+        onEditConfig={() => {
+          setModalScenario(scenario);
+          setIsCreateModalOpen(true);
+        }}
         lang="ru"
       />
       <NetworkStatusPanel
@@ -242,7 +265,6 @@ export default function App() {
       <SatelliteDetailPopup
         satellite={selectedSatellite}
         onClose={() => setSelectedSatellite(null)}
-        onFocusSatellite={focusSatellite}
         lang="ru"
       />
       <RouteInspectorModal
@@ -259,15 +281,9 @@ export default function App() {
       />
       <CreateProjectModal
         isOpen={isCreateModalOpen}
-        initialMode={createMode}
+        scenario={modalScenario}
         onClose={() => setIsCreateModalOpen(false)}
-        onCreate={createProject}
-      />
-      <PlaneEditorModal
-        isOpen={isPlaneEditorOpen}
-        scenario={scenario}
-        onClose={() => setIsPlaneEditorOpen(false)}
-        onSave={updatePlanes}
+        onSave={createProject}
       />
       {error && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 rounded-lg border border-rose-500/50 bg-rose-950/90 px-4 py-2 text-xs text-rose-200">

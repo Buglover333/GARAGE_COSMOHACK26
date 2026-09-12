@@ -1,14 +1,13 @@
-import { Activity, CheckCircle2, Eye, Moon, Sun, X } from 'lucide-react';
+import { Activity, CheckCircle2, Moon, Sun, X } from 'lucide-react';
 import { Satellite } from '../types/simulation';
 
 interface Props {
   satellite: Satellite | null;
   onClose: () => void;
-  onFocusSatellite: (satId: string) => void;
   lang: 'ru' | 'en';
 }
 
-export const SatelliteDetailPopup = ({ satellite, onClose, onFocusSatellite, lang }: Props) => {
+export const SatelliteDetailPopup = ({ satellite, onClose, lang }: Props) => {
   if (!satellite) return null;
   const inRoute = satellite.status === 'in_route';
   const offline = satellite.status === 'offline';
@@ -41,9 +40,6 @@ export const SatelliteDetailPopup = ({ satellite, onClose, onFocusSatellite, lan
               <span>{satellite.sunlit ? (lang === 'ru' ? 'Освещён Солнцем' : 'Sunlit') : (lang === 'ru' ? 'В тени Земли' : 'In Earth shadow')}</span>
             </div>
           </div>
-          <button onClick={() => onFocusSatellite(satellite.id)} className="w-full py-2 rounded-xl bg-blue-600 hover:bg-blue-500 text-white flex items-center justify-center gap-1.5">
-            <Eye className="w-3.5 h-3.5" />{lang === 'ru' ? 'Сфокусировать камеру' : 'Focus camera'}
-          </button>
         </div>
       </div>
     </div>
