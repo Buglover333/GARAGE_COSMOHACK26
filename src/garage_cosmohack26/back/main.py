@@ -13,7 +13,8 @@ from typing import Optional
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 
 import geometry
 from routing import optimal_route, diagnose_route
@@ -32,7 +33,8 @@ import analytics
 # --------------------------------------------------------------- paths
 BACK_DIR = Path(__file__).resolve().parent
 FRONT_DIR = BACK_DIR.parent / "front"
-INDEX_HTML = FRONT_DIR / "index.html"
+FRONT_DIST_DIR = FRONT_DIR / "dist"
+INDEX_HTML = FRONT_DIST_DIR / "index.html"
 
 
 # --------------------------------------------------------------- app
@@ -329,16 +331,27 @@ async def api_export_json(config_id: Optional[str] = None):
 
 
 # ================================================================
-#  Static frontend
+#  React frontend
 # ================================================================
 
-@app.get("/", response_class=HTMLResponse, include_in_schema=False)
-async def index():
+if (FRONT_DIST_DIR / "assets").is_dir():
+    app.mount(
+        "/assets",
+        StaticFiles(directory=FRONT_DIST_DIR / "assets"),
+        name="frontend-assets",
+    )
+
+
+@app.get("/{path:path}", include_in_schema=False)
+async def frontend(path: str):
     if INDEX_HTML.exists():
-        return HTMLResponse(INDEX_HTML.read_text(encoding="utf-8"))
+        requested = (FRONT_DIST_DIR / path).resolve()
+        if requested.is_relative_to(FRONT_DIST_DIR.resolve()) and requested.is_file():
+            return FileResponse(requested)
+        return FileResponse(INDEX_HTML)
     return HTMLResponse(
         "<h1>Constellation Simulator</h1>"
-        f"<p>Put your frontend at <code>{INDEX_HTML}</code>.</p>"
+        f"<p>Build the React frontend at <code>{INDEX_HTML}</code>.</p>"
     )
 
 
