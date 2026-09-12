@@ -614,23 +614,46 @@ export const EarthScene = forwardRef<EarthSceneHandle, EarthSceneProps>(({
         const satDist = satPos.length();
         const coneHeight = satDist - EARTH_RADIUS_SCENE;
         const coneRadius = Math.tan((25 * Math.PI) / 180) * coneHeight * 1.6;
+        const isSelected = sat.id === selectedSatelliteId;
+        const coverageColor = sat.status === 'offline'
+          ? 0xfb7185
+          : isSelected ? 0x22d3ee : 0x38bdf8;
 
         const coneGeo = new THREE.ConeGeometry(coneRadius, coneHeight, 32, 1, true);
         coneGeo.translate(0, -coneHeight / 2, 0);
         coneGeo.rotateX(-Math.PI / 2);
 
         const coneMat = new THREE.MeshBasicMaterial({
-          color: sat.status === 'offline' ? 0xef4444 : 0x06b6d4,
+          color: coverageColor,
           transparent: true,
-          opacity: 0.12,
+          opacity: isSelected ? 0.38 : 0.28,
           side: THREE.DoubleSide,
           depthWrite: false,
+          blending: THREE.AdditiveBlending,
         });
 
         const coneMesh = new THREE.Mesh(coneGeo, coneMat);
         coneMesh.position.copy(satPos);
         coneMesh.lookAt(0, 0, 0);
+        coneMesh.renderOrder = 4;
         covGroup.add(coneMesh);
+
+        // A colored wireframe keeps the footprint readable against both the
+        // dark ocean and bright land portions of the Earth texture.
+        const outlineMesh = new THREE.Mesh(
+          coneGeo,
+          new THREE.MeshBasicMaterial({
+            color: coverageColor,
+            transparent: true,
+            opacity: isSelected ? 0.42 : 0.24,
+            wireframe: true,
+            depthWrite: false,
+          }),
+        );
+        outlineMesh.position.copy(satPos);
+        outlineMesh.lookAt(0, 0, 0);
+        outlineMesh.renderOrder = 5;
+        covGroup.add(outlineMesh);
       });
     }
 

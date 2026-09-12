@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, FolderOpen, GitCompareArrows, Maximize2, Minimize2, Orbit, Plus } from 'lucide-react';
+import { BarChart3, ChevronDown, FolderOpen, GitCompareArrows, Maximize2, Minimize2, Orbit, Plus, Sparkles } from 'lucide-react';
 import { ConfigSummaryDto } from '../api/simulation';
 import { ConstellationConfig, SimulationTime } from '../types/simulation';
 import { formatTimeSeconds } from '../utils/orbitalMechanics';
@@ -12,6 +12,8 @@ interface Props {
   onCreateProject: () => void;
   onLoadProject: (id: string) => void;
   onOpenComparison: () => void;
+  onOpenMetrics: () => void;
+  onOpenOptimization: () => void;
   lang: 'ru' | 'en';
 }
 
@@ -23,6 +25,8 @@ export const Header = ({
   onCreateProject,
   onLoadProject,
   onOpenComparison,
+  onOpenMetrics,
+  onOpenOptimization,
   lang,
 }: Props) => {
   const [fullscreen, setFullscreen] = useState(false);
@@ -132,6 +136,26 @@ export const Header = ({
     </div>
 
     <div className="flex items-center gap-2">
+      <button
+        type="button"
+        disabled={!config}
+        onClick={onOpenMetrics}
+        className="h-8 px-3 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 flex items-center gap-2 text-xs text-slate-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        title={lang === 'ru' ? 'Рассчитать метрики конфигурации' : 'Calculate configuration metrics'}
+      >
+        <BarChart3 className="w-4 h-4 text-cyan-400" />
+        <span className="hidden xl:inline">{lang === 'ru' ? 'Метрики' : 'Metrics'}</span>
+      </button>
+      <button
+        type="button"
+        disabled={!config}
+        onClick={onOpenOptimization}
+        className="h-8 px-3 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 flex items-center gap-2 text-xs text-slate-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        title={lang === 'ru' ? 'Рассчитать эффективный деплой' : 'Optimize deployment'}
+      >
+        <Sparkles className="w-4 h-4 text-violet-400" />
+        <span className="hidden xl:inline">{lang === 'ru' ? 'Оптимизация' : 'Optimization'}</span>
+      </button>
       <button
         type="button"
         onClick={onOpenComparison}

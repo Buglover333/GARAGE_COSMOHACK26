@@ -47,6 +47,7 @@ export const ViewControlsOverlay: React.FC<ViewControlsOverlayProps> = ({
     gatewayStation: lang === 'ru' ? 'Наземный пункт (шлюз)' : 'Ground Station (Gateway)',
     islLink: lang === 'ru' ? 'Межспутниковая связь' : 'Inter-Satellite Link (ISL)',
     orbitPlane: lang === 'ru' ? 'Орбитальная плоскость' : 'Orbital Plane',
+    coverageArea: lang === 'ru' ? 'Зона покрытия' : 'Coverage Area',
   };
 
   return (
@@ -139,6 +140,7 @@ export const ViewControlsOverlay: React.FC<ViewControlsOverlayProps> = ({
               <div className="flex items-center gap-2.5"><span className="h-0 w-0 shrink-0 border-b-[8px] border-l-[5px] border-r-[5px] border-b-amber-400 border-l-transparent border-r-transparent" /><span className="text-slate-300">{t.gatewayStation}</span></div>
               <div className="flex items-center gap-2.5"><span className="h-0.5 w-4 shrink-0 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50" /><span className="text-slate-300">{t.islLink}</span></div>
               <div className="flex items-center gap-2.5"><span className="h-0.5 w-4 shrink-0 border-t border-dashed border-sky-400" /><span className="text-slate-300">{t.orbitPlane}</span></div>
+              <div className="flex items-center gap-2.5"><span className="h-3 w-4 shrink-0 rounded-sm border border-cyan-300 bg-cyan-400/40 shadow-sm shadow-cyan-400/40" /><span className="text-slate-300">{t.coverageArea}</span></div>
             </div>
           </div>
         )}

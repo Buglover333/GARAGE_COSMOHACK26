@@ -37,32 +37,6 @@ export interface ConfigSummaryDto {
   updated_at: number;
 }
 
-export interface ComparisonDto {
-  a: {
-    config_id: string;
-    meta: { id: string; title: string };
-    summary: { mean_coverage: number; target: number; clients_below_target: string[] };
-  };
-  b: {
-    config_id: string;
-    meta: { id: string; title: string };
-    summary: { mean_coverage: number; target: number; clients_below_target: string[] };
-  };
-  deltas: Array<{
-    client_id: string;
-    coverage_a: number | null;
-    coverage_b: number | null;
-    coverage_delta: number | null;
-    max_gap_a_s: number | null;
-    max_gap_b_s: number | null;
-    max_gap_delta_s: number | null;
-    mean_hops_a: number | null;
-    mean_hops_b: number | null;
-    mean_delay_a_ms: number | null;
-    mean_delay_b_ms: number | null;
-  }>;
-}
-
 interface TelemetryDto {
   t_s: number;
   horizon_s: number;
@@ -108,12 +82,10 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const simulationApi = {
   getConfigs: () => request<ConfigSummaryDto[]>('/api/configs'),
+  getConfig: (id: string) => request<ScenarioDto>(`/api/configs/${encodeURIComponent(id)}`),
   loadScenario: (id: string) => request<{ loaded: string }>(
     `/api/scenario/load/${encodeURIComponent(id)}`,
     { method: 'POST' },
-  ),
-  compareConfigs: (a: string, b: string) => request<ComparisonDto>(
-    `/api/analytics/compare?a=${encodeURIComponent(a)}&b=${encodeURIComponent(b)}`,
   ),
   getScenario: () => request<{ meta: { config_id: string | null }; scenario: ScenarioDto }>('/api/scenario'),
   replaceScenario: (scenario: ScenarioDto) => request('/api/scenario', {

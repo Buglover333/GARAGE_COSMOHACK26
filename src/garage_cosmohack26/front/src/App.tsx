@@ -9,6 +9,8 @@ import { RouteInspectorModal } from './components/RouteInspectorModal';
 import { SatelliteDetailPopup } from './components/SatelliteDetailPopup';
 import { CreateProjectModal } from './components/CreateProjectModal';
 import { ComparisonModal } from './components/ComparisonModal';
+import { MetricsModal } from './components/MetricsModal';
+import { OptimizationModal } from './components/OptimizationModal';
 import { CommunicationRoute, ConstellationConfig, GroundStation, Satellite, SceneLayers, SimulationTime } from './types/simulation';
 import { ConfigSummaryDto, ScenarioDto, simulationApi, toConfig, toRoutes, toSatellites, toStations } from './api/simulation';
 
@@ -32,6 +34,11 @@ export default function App() {
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
+  const [isMetricsModalOpen, setIsMetricsModalOpen] = useState(false);
+  const [isOptimizationModalOpen, setIsOptimizationModalOpen] = useState(false);
+  const [optimizationBaseScenario, setOptimizationBaseScenario] = useState<ScenarioDto | null>(null);
+  const [comparisonCandidate, setComparisonCandidate] = useState<ScenarioDto | null>(null);
+  const [comparisonCandidateLabel, setComparisonCandidateLabel] = useState('Результат оптимизации');
   const [modalScenario, setModalScenario] = useState<ScenarioDto | null>(null);
   const [savedConfigs, setSavedConfigs] = useState<ConfigSummaryDto[]>([]);
   const [loadingConfigId, setLoadingConfigId] = useState<string | null>(null);
@@ -170,17 +177,36 @@ export default function App() {
     }
   }, []);
 
-  const createProject = useCallback(async (newScenario: ScenarioDto) => {
+  const activateScenario = useCallback(async (newScenario: ScenarioDto, persist: boolean) => {
     setError(null);
     await simulationApi.replaceScenario(newScenario);
-    await simulationApi.saveScenario(newScenario.meta.id, newScenario.meta.title);
+    if (persist) await simulationApi.saveScenario(newScenario.meta.id, newScenario.meta.title);
     await simulationApi.patchScenario({ playback: simulationTime.speed });
     const response = await simulationApi.getScenario();
+    activeRouteIdRef.current = null;
+    setSelectedSatellite(null);
     await applyScenario(response.scenario);
     renderedStepRef.current = null;
     await refreshFrames(true);
-    await refreshConfigLibrary();
+    if (persist) await refreshConfigLibrary();
   }, [applyScenario, refreshConfigLibrary, refreshFrames, simulationTime.speed]);
+
+  const createProject = useCallback(
+    (newScenario: ScenarioDto) => activateScenario(newScenario, true),
+    [activateScenario],
+  );
+
+  const saveOptimizedScenario = useCallback(async (candidate: ScenarioDto) => {
+    const existingIds = new Set(savedConfigs.map(item => item.id));
+    const baseId = candidate.meta.id.replace(/[^a-zA-Z0-9_-]+/g, '_');
+    let id = baseId;
+    let suffix = 2;
+    while (existingIds.has(id)) { id = `${baseId}-${suffix}`; suffix += 1; }
+    await activateScenario({
+      ...candidate,
+      meta: { ...candidate.meta, id, title: `${candidate.meta.title} — оптимизированная` },
+    }, true);
+  }, [activateScenario, savedConfigs]);
 
   const loadProject = useCallback(async (id: string) => {
     setError(null);
@@ -264,7 +290,15 @@ export default function App() {
           setIsCreateModalOpen(true);
         }}
         onLoadProject={id => void loadProject(id)}
-        onOpenComparison={() => setIsComparisonModalOpen(true)}
+        onOpenComparison={() => {
+          setComparisonCandidate(null);
+          setIsComparisonModalOpen(true);
+        }}
+        onOpenMetrics={() => setIsMetricsModalOpen(true)}
+        onOpenOptimization={() => {
+          setOptimizationBaseScenario(scenario);
+          setIsOptimizationModalOpen(true);
+        }}
         lang="ru"
       />
       <ConfigurationPanel
@@ -330,8 +364,29 @@ export default function App() {
       <ComparisonModal
         isOpen={isComparisonModalOpen}
         configs={savedConfigs}
-        activeConfigId={config?.id ?? null}
+        activeScenario={comparisonCandidate ? optimizationBaseScenario ?? scenario : scenario}
+        candidateScenario={comparisonCandidate}
+        candidateLabel={comparisonCandidateLabel}
         onClose={() => setIsComparisonModalOpen(false)}
+      />
+      <MetricsModal
+        isOpen={isMetricsModalOpen}
+        scenario={scenario}
+        onClose={() => setIsMetricsModalOpen(false)}
+      />
+      <OptimizationModal
+        isOpen={isOptimizationModalOpen}
+        scenario={optimizationBaseScenario}
+        onClose={() => setIsOptimizationModalOpen(false)}
+        onPreview={candidate => activateScenario(candidate, false)}
+        onApply={candidate => activateScenario(candidate, false)}
+        onSave={saveOptimizedScenario}
+        onCompare={(candidate, label) => {
+          setComparisonCandidate(candidate);
+          setComparisonCandidateLabel(label);
+          setIsOptimizationModalOpen(false);
+          setIsComparisonModalOpen(true);
+        }}
       />
       {error && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 rounded-lg border border-rose-500/50 bg-rose-950/90 px-4 py-2 text-xs text-rose-200">
