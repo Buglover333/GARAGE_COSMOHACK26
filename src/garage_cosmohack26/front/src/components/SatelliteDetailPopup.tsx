@@ -1,13 +1,15 @@
-import { Activity, CheckCircle2, Moon, Sun, X } from 'lucide-react';
+import { Activity, CheckCircle2, Moon, Power, Sun, X } from 'lucide-react';
 import { Satellite } from '../types/simulation';
 
 interface Props {
   satellite: Satellite | null;
   onClose: () => void;
+  onDisableSatellite: (satelliteId: string) => void;
+  isDisabling: boolean;
   lang: 'ru' | 'en';
 }
 
-export const SatelliteDetailPopup = ({ satellite, onClose, lang }: Props) => {
+export const SatelliteDetailPopup = ({ satellite, onClose, onDisableSatellite, isDisabling, lang }: Props) => {
   if (!satellite) return null;
   const inRoute = satellite.status === 'in_route';
   const offline = satellite.status === 'offline';
@@ -40,6 +42,19 @@ export const SatelliteDetailPopup = ({ satellite, onClose, lang }: Props) => {
               <span>{satellite.sunlit ? (lang === 'ru' ? 'Освещён Солнцем' : 'Sunlit') : (lang === 'ru' ? 'В тени Земли' : 'In Earth shadow')}</span>
             </div>
           </div>
+          <button
+            type="button"
+            disabled={offline || isDisabling}
+            onClick={() => onDisableSatellite(satellite.id)}
+            className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-500/50 bg-rose-950/40 px-3 py-2.5 font-semibold text-rose-300 transition-colors hover:bg-rose-900/50 disabled:cursor-not-allowed disabled:border-slate-700 disabled:bg-slate-900 disabled:text-slate-500"
+          >
+            <Power className="h-4 w-4" />
+            {offline
+              ? (lang === 'ru' ? 'Спутник уже отключён' : 'Satellite is already disabled')
+              : isDisabling
+                ? (lang === 'ru' ? 'Отключение…' : 'Disabling…')
+                : (lang === 'ru' ? 'Отключить спутник' : 'Disable satellite')}
+          </button>
         </div>
       </div>
     </div>

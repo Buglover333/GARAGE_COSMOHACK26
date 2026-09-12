@@ -4,7 +4,6 @@ import { Header } from './components/Header';
 import { ConfigurationPanel } from './components/ConfigurationPanel';
 import { NetworkStatusPanel } from './components/NetworkStatusPanel';
 import { TimelineBar } from './components/TimelineBar';
-import { LegendOverlay } from './components/LegendOverlay';
 import { ViewControlsOverlay } from './components/ViewControlsOverlay';
 import { RouteInspectorModal } from './components/RouteInspectorModal';
 import { SatelliteDetailPopup } from './components/SatelliteDetailPopup';
@@ -36,6 +35,7 @@ export default function App() {
   const [modalScenario, setModalScenario] = useState<ScenarioDto | null>(null);
   const [savedConfigs, setSavedConfigs] = useState<ConfigSummaryDto[]>([]);
   const [loadingConfigId, setLoadingConfigId] = useState<string | null>(null);
+  const [disablingSatelliteId, setDisablingSatelliteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const earthSceneRef = useRef<EarthSceneHandle>(null);
   const scenarioRef = useRef<ScenarioDto | null>(null);
@@ -201,6 +201,44 @@ export default function App() {
     }
   }, [applyScenario, refreshFrames, simulationTime.speed]);
 
+  const disableSatellite = useCallback(async (satelliteId: string) => {
+    const currentScenario = scenarioRef.current;
+    if (!currentScenario) return;
+
+    const startSeconds = Math.min(frameTimeSeconds, currentScenario.environment.horizon_s - 1);
+    const alreadyDisabled = currentScenario.failures.some(failure => (
+      failure.satellite_id === satelliteId
+      && typeof failure.start_s === 'number'
+      && typeof failure.end_s === 'number'
+      && failure.start_s <= startSeconds
+      && startSeconds < failure.end_s
+    ));
+    if (alreadyDisabled) return;
+
+    const failures = [
+      ...currentScenario.failures,
+      {
+        satellite_id: satelliteId,
+        start_s: startSeconds,
+        end_s: currentScenario.environment.horizon_s,
+        source: 'manual',
+      },
+    ];
+
+    setError(null);
+    setDisablingSatelliteId(satelliteId);
+    try {
+      await simulationApi.patchScenario({ failures });
+      await applyScenario({ ...currentScenario, failures });
+      renderedStepRef.current = null;
+      await refreshFrames(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setDisablingSatelliteId(null);
+    }
+  }, [applyScenario, frameTimeSeconds, refreshFrames]);
+
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#03060d] text-slate-100 font-sans">
       <EarthScene
@@ -250,7 +288,6 @@ export default function App() {
           onFocusSatellite={focusSatellite}
           lang="ru"
         />
-      <LegendOverlay lang="ru" />
       <ViewControlsOverlay
         layers={layers}
         onToggleLayer={key => setLayers(previous => ({ ...previous, [key]: !previous[key] }))}
@@ -268,6 +305,8 @@ export default function App() {
       <SatelliteDetailPopup
         satellite={selectedSatellite}
         onClose={() => setSelectedSatellite(null)}
+        onDisableSatellite={id => void disableSatellite(id)}
+        isDisabling={selectedSatellite?.id === disablingSatelliteId}
         lang="ru"
       />
       <RouteInspectorModal
