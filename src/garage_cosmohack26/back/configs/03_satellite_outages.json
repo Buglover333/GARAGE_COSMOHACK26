@@ -1,8 +1,8 @@
 {
   "schema_version": "cosmo-A-1.0",
   "meta": {
-    "id": "01_full_constellation",
-    "title": "Полная группировка"
+    "id": "03_satellite_outages",
+    "title": "Недоступность десяти аппаратов"
   },
   "environment": {
     "altitude_km": 550.0,
@@ -12,7 +12,7 @@
     "step_s": 120,
     "min_elevation_deg": 10.0,
     "isl_range_km": 3000.0,
-    "target_availability": 0.1
+    "target_availability": 0.9
   },
   "design": {
     "launch_stage": 3,
@@ -356,9 +356,54 @@
   ],
   "failures": [
     {
-      "satellite_id": "S01",
-      "start_s": 120,
-      "end_s": 11111
+      "satellite_id": "S31",
+      "start_s": 21600,
+      "end_s": 86400
+    },
+    {
+      "satellite_id": "S14",
+      "start_s": 21600,
+      "end_s": 86400
+    },
+    {
+      "satellite_id": "S48",
+      "start_s": 21600,
+      "end_s": 86400
+    },
+    {
+      "satellite_id": "S16",
+      "start_s": 21600,
+      "end_s": 86400
+    },
+    {
+      "satellite_id": "S26",
+      "start_s": 21600,
+      "end_s": 86400
+    },
+    {
+      "satellite_id": "S15",
+      "start_s": 21600,
+      "end_s": 86400
+    },
+    {
+      "satellite_id": "S08",
+      "start_s": 21600,
+      "end_s": 86400
+    },
+    {
+      "satellite_id": "S05",
+      "start_s": 21600,
+      "end_s": 86400
+    },
+    {
+      "satellite_id": "S32",
+      "start_s": 21600,
+      "end_s": 86400
+    },
+    {
+      "satellite_id": "S34",
+      "start_s": 21600,
+      "end_s": 86400
     }
   ],
   "gateway_outages": []

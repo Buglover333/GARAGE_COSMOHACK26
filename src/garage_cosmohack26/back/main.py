@@ -11,7 +11,10 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import Optional
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi import (
+    FastAPI, HTTPException, WebSocket, WebSocketDisconnect,
+    UploadFile, File, Form, Query,
+)
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -28,6 +31,15 @@ from schemas import (
     ConfigSummary,
 )
 import analytics
+
+# NEW: bring in the metrics / optimizer module
+import metrics as metrics_mod
+
+
+# --------------------------------------------------------------- limits
+MAX_SATELLITES_PER_SCENARIO = 500      # hard cap on any uploaded/created scenario
+MAX_SATELLITES_FOR_OPTIMAL  = 100       # hard cap on any single stage of /api/calculate_optimal
+MAX_ITERATIONS_FOR_OPTIMAL  = 200      # hard cap on iterations per stage
 
 
 # --------------------------------------------------------------- paths
@@ -67,6 +79,26 @@ async def _run_blocking(fn, *args, **kwargs):
     return await loop.run_in_executor(_EXECUTOR, lambda: fn(*args, **kwargs))
 
 
+# --------------------------------------------------------------- limit helpers
+def _satellite_count(scenario: dict) -> int:
+    """Return the number of satellites declared in a scenario."""
+    try:
+        return len(scenario["design"]["satellites"])
+    except (KeyError, TypeError):
+        return 0
+
+
+def _enforce_scenario_limit(scenario: dict, *, source: str = "scenario") -> None:
+    """Reject scenarios with more than MAX_SATELLITES_PER_SCENARIO satellites."""
+    n = _satellite_count(scenario)
+    if n > MAX_SATELLITES_PER_SCENARIO:
+        raise HTTPException(
+            400,
+            f"{source} declares {n} satellites, "
+            f"which exceeds the limit of {MAX_SATELLITES_PER_SCENARIO}",
+        )
+
+
 # ================================================================
 #  HTTP: config library
 # ================================================================
@@ -88,6 +120,8 @@ async def api_get_config(config_id: str):
 async def api_save_active(config_id: str, title: str = ""):
     if not config_id:
         raise HTTPException(400, "config_id is required")
+    # The active scenario must also respect the cap.
+    _enforce_scenario_limit(store.snapshot_sync(), source="active scenario")
     doc = await store.save_as(config_id, title or config_id)
     return {"saved": config_id, "meta": store.meta()}
 
@@ -97,8 +131,12 @@ async def api_upload_config(doc: ScenarioModel, as_id: Optional[str] = None):
     target = as_id or doc.meta.id
     if not target:
         raise HTTPException(400, "config id missing")
-    doc.meta.id = target
-    save_config(doc.model_dump())
+
+    payload = doc.model_dump()
+    _enforce_scenario_limit(payload, source=f"config {target!r}")
+
+    payload["meta"]["id"] = target
+    save_config(payload)
     return {"saved": target}
 
 
@@ -130,6 +168,8 @@ async def api_load(config_id: str):
         raise HTTPException(404, f"config {config_id!r} not found")
     except Exception as exc:
         raise HTTPException(400, f"invalid config: {exc}")
+    # A loaded config must respect the cap too.
+    _enforce_scenario_limit(store.snapshot_sync(), source=f"config {config_id!r}")
     return {"loaded": config_id, "meta": store.meta()}
 
 
@@ -141,17 +181,55 @@ async def api_new(title: str = "Untitled"):
 
 @app.put("/api/scenario", tags=["scenario"])
 async def api_replace(doc: ScenarioModel):
-    await store.set_scenario(doc.model_dump())
+    payload = doc.model_dump()
+    _enforce_scenario_limit(payload, source="replacement scenario")
+    await store.set_scenario(payload)
     return {"meta": store.meta()}
 
 
 @app.post("/api/scenario/patch", response_model=ScenarioAck, tags=["scenario"])
 async def api_patch(patch: ScenarioPatch):
+    # Apply to a copy first so we can validate the post-patch size without
+    # mutating the live scenario.
+    current = store.snapshot_sync()
+    candidate = json.loads(json.dumps(current))  # cheap deep copy via JSON
+    try:
+        _apply_patch_to_dict(candidate, patch.model_dump(exclude_none=True))
+    except ValueError as exc:
+        raise HTTPException(400, str(exc))
+    _enforce_scenario_limit(candidate, source="patched scenario")
+
     try:
         applied = await store.apply_patch(patch.model_dump(exclude_none=True))
     except ValueError as exc:
         raise HTTPException(400, str(exc))
     return ScenarioAck(applied=applied)
+
+
+def _apply_patch_to_dict(scenario: dict, patch: dict) -> None:
+    """
+    Mirror of ScenarioStore.apply_patch, applied to a plain dict.
+    Used only for size validation before committing the patch.
+    Raises ValueError if the patch is structurally invalid.
+    """
+    design = scenario.setdefault("design", {})
+    env = scenario.setdefault("environment", {})
+
+    for key, value in (patch.get("environment") or {}).items():
+        env[key] = value
+
+    for key, value in (patch.get("design") or {}).items():
+        if key == "planes" and value is not None:
+            # Replace the plane list wholesale.
+            design["planes"] = value
+        elif key == "satellites" and value is not None:
+            design["satellites"] = value
+        else:
+            design[key] = value
+
+    for key in ("ground_sites", "failures", "gateway_outages"):
+        if key in patch and patch[key] is not None:
+            scenario[key] = patch[key]
 
 
 # ================================================================
@@ -244,8 +322,6 @@ async def api_compare(a: str, b: str):
     except FileNotFoundError as exc:
         raise HTTPException(404, str(exc))
 
-    # Both analyses run in the thread pool.  Same underlying analyze() means
-    # a repeat comparison of the same pair is instant thanks to the cache.
     rep_a_obj, rep_b_obj = await asyncio.gather(
         _run_blocking(analytics.analyze, scen_a),
         _run_blocking(analytics.analyze, scen_b),
@@ -328,6 +404,425 @@ async def api_export_json(config_id: Optional[str] = None):
     scen = _analytics_scenario(config_id)
     rep = await _run_blocking(analytics.analyze, scen)
     return analytics.report_to_dict(rep)
+
+
+# ================================================================
+#  HTTP: metrics  (NEW)
+# ================================================================
+
+def _parse_uploaded_json(raw: bytes) -> dict:
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except UnicodeDecodeError as exc:
+        raise HTTPException(400, f"uploaded file is not valid UTF-8: {exc}")
+    except json.JSONDecodeError as exc:
+        raise HTTPException(400, f"uploaded file is not valid JSON: {exc}")
+
+
+def _metrics_timestep_rows(scenario: dict):
+    """
+    Yield one flat dict per (t_s, client) with the per-step info.
+    Used both for the JSON "timesteps" array and for the CSV.
+    """
+    e = scenario["environment"]
+    step = e["step_s"]
+    N = e["horizon_s"] // step
+    clients = [g["id"] for g in scenario["ground_sites"] if g["role"] == "client"]
+    gateways = [g["id"] for g in scenario["ground_sites"] if g["role"] == "gateway"]
+
+    for k in range(N):
+        t_s = k * step
+        snap = geometry.snapshot(scenario, t_s)
+        edges = snap["edges"]
+        elev = snap["elevation_deg"]
+        min_el = e["min_elevation_deg"]
+
+        for c in clients:
+            visible = any(elev[c][s] >= min_el for s in elev[c])
+            path = metrics_mod.shortest_path_to_any_gateway(edges, c, gateways)
+            yield {
+                "t_s": t_s,
+                "client_id": c,
+                "visible": bool(visible),
+                "has_path": path is not None,
+                "path": path if path is not None else [],
+                "hops": (len(path) - 1) if path is not None else None,
+            }
+
+
+@app.post("/api/metrics", tags=["metrics"])
+async def api_metrics(
+    file: UploadFile = File(..., description="cosmo-A-1.0 scenario JSON"),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+    include_timesteps: bool = Query(True),
+):
+    """
+    Upload a scenario, get per-client summary metrics + optional per-timestep data.
+
+    Query params:
+      fmt               : "json" (default) or "csv"
+      include_timesteps : if true (default), include the per-step rows
+    """
+    raw = await file.read()
+    scenario = _parse_uploaded_json(raw)
+
+    # Enforce satellite cap before doing any work.
+    _enforce_scenario_limit(scenario, source=file.filename or "uploaded scenario")
+
+    # Validate early — the same validator geometry.py uses.
+    try:
+        geometry.validate(scenario)
+    except ValueError as exc:
+        raise HTTPException(400, f"invalid scenario: {exc}")
+
+    summary = await _run_blocking(metrics_mod.client_metrics, scenario)
+
+    if fmt == "json":
+        out = {"summary": summary}
+        if include_timesteps:
+            out["timesteps"] = list(_metrics_timestep_rows(scenario))
+        return out
+
+    # ---- CSV branch ----
+    buf = io.StringIO()
+    w = csv.writer(buf)
+
+    if include_timesteps:
+        w.writerow(["section", "t_s", "client_id", "visible", "has_path",
+                    "hops", "path"])
+        for row in _metrics_timestep_rows(scenario):
+            w.writerow([
+                "timestep", row["t_s"], row["client_id"],
+                int(row["visible"]), int(row["has_path"]),
+                row["hops"] if row["hops"] is not None else "",
+                "|".join(row["path"]),
+            ])
+
+    w.writerow([])
+    w.writerow(["section", "client_id", "visibility_pct",
+                "gateway_availability_pct", "max_interruption_s", "avg_hops"])
+    for cid, m in summary.items():
+        w.writerow([
+            "summary", cid,
+            f"{m['visibility_pct']:.4f}",
+            f"{m['gateway_availability_pct']:.4f}",
+            f"{m['max_interruption_s']:.0f}",
+            f"{m['avg_hops']:.4f}" if m["avg_hops"] is not None else "",
+        ])
+
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={
+            "Content-Disposition":
+                f'attachment; filename="metrics_{file.filename or "scenario"}.csv"'
+        },
+    )
+
+
+# ================================================================
+#  HTTP: calculate_optimal  (NEW)
+# ================================================================
+
+@app.post("/api/calculate_optimal", tags=["optimize"])
+async def api_calculate_optimal(
+    base_file: UploadFile = File(..., description="Base cosmo-A-1.0 scenario (environment + ground sites)"),
+    satellites_per_plane: str = Form(..., description="JSON array, e.g. [8,8,8] for 3 stages of 8 sats/plane"),
+    planes: int = Form(3, description="Number of orbital planes"),
+    iterations: int = Form(100, description="Random-search iterations per stage"),
+    seed: int = Form(0, description="RNG seed for reproducibility"),
+    include_metrics: bool = Form(True, description="Include per-client metrics in each streamed stage"),
+):
+    """
+    Stream the optimal configuration for each deployment step as it is generated.
+
+    Response is NDJSON (application/x-ndjson), one JSON object per line:
+      {"stage": 1, "n_sat": 16, "scenario": {...}, "metrics": {...}, "bounds": {...}}
+      {"stage": 2, ...}
+      {"stage": 3, ...}
+      {"done": true, "stages": 3}
+    """
+    raw = await base_file.read()
+    base = _parse_uploaded_json(raw)
+
+    # Enforce scenario-wide satellite cap on the base file too.
+    _enforce_scenario_limit(base, source=f"base scenario {base_file.filename!r}")
+
+    try:
+        geometry.validate(base)
+    except ValueError as exc:
+        raise HTTPException(400, f"invalid base scenario: {exc}")
+
+    # Parse satellites_per_plane — accept "[8,8,8]" or "8,8,8".
+    try:
+        spec = json.loads(satellites_per_plane)
+    except json.JSONDecodeError:
+        try:
+            spec = [int(x) for x in satellites_per_plane.split(",") if x.strip()]
+        except ValueError:
+            raise HTTPException(400,
+                "satellites_per_plane must be a JSON array or comma-separated ints")
+    if not isinstance(spec, list) or not spec:
+        raise HTTPException(400, "satellites_per_plane must be a non-empty list")
+    try:
+        spec = [int(x) for x in spec]
+    except (TypeError, ValueError):
+        raise HTTPException(400, "satellites_per_plane values must be integers")
+    if any(x <= 0 for x in spec):
+        raise HTTPException(400, "satellites_per_plane values must be positive")
+
+    if planes <= 0:
+        raise HTTPException(400, "planes must be a positive integer")
+
+    # ---- Iteration cap ----
+    if iterations <= 0:
+        raise HTTPException(400, "iterations must be a positive integer")
+    if iterations > MAX_ITERATIONS_FOR_OPTIMAL:
+        raise HTTPException(
+            400,
+            f"iterations={iterations} exceeds the limit of "
+            f"{MAX_ITERATIONS_FOR_OPTIMAL} per stage",
+        )
+
+    # ---- Satellite cap (per stage, cumulative) ----
+    # Each stage k has planes * spec[k] satellites on orbit, but the optimizer
+    # itself designs the *cumulative* total: planes * sum(spec[:k+1]).
+    # Apply the cap to the cumulative count for every stage.
+    cumulative = 0
+    for i, per_plane in enumerate(spec, start=1):
+        cumulative += per_plane * planes
+        if cumulative > MAX_SATELLITES_FOR_OPTIMAL:
+            raise HTTPException(
+                400,
+                f"stage {i} would have {cumulative} satellites "
+                f"({planes} planes × {per_plane} per plane cumulative), "
+                f"which exceeds the optimization limit of "
+                f"{MAX_SATELLITES_FOR_OPTIMAL}",
+            )
+
+    async def stream():
+        total_sats = 0
+        for stage_idx, per_plane in enumerate(spec, start=1):
+            total_sats += per_plane * planes
+
+            # The metrics optimizer is CPU-bound; run it off the event loop.
+            result = await _run_blocking(
+                metrics_mod.optimize,
+                base, total_sats, planes,
+                iterations=iterations,
+                seed=seed + stage_idx,
+            )
+
+            # The scenario produced by optimize() already has launch_stage=3.
+            # For a deployment stage we want the satellites of *this* batch to
+            # be active and the next ones inactive.  We re-tag launch_batch so
+            # stage k only includes batches <= k, while the *total* count still
+            # matches what the optimizer chose.
+            scenario = result["best_scenario"]
+            n_sats_total = len(scenario["design"]["satellites"])
+            per_batch = n_sats_total / len(spec) if spec else n_sats_total
+            for i, sat in enumerate(scenario["design"]["satellites"]):
+                batch = min(len(spec), int(i // per_batch) + 1)
+                sat["launch_batch"] = batch
+            scenario["design"]["launch_stage"] = stage_idx
+            scenario["meta"]["id"] = (
+                f"{base['meta']['id']}_stage{stage_idx}_opt"
+            )
+            scenario["meta"]["title"] = (
+                f"{base['meta'].get('title', base['meta']['id'])} — stage {stage_idx}"
+            )
+
+            # Re-evaluate with the stage applied (so metrics reflect this stage only).
+            stage_metrics = await _run_blocking(
+                metrics_mod.client_metrics, scenario
+            )
+
+            payload = {
+                "stage": stage_idx,
+                "n_sat": total_sats,
+                "scenario": scenario,
+                "bounds": result["bounds"],
+                "best_score": result["best_score"],
+                "met_target": all(
+                    m["gateway_availability_pct"] >= 100.0 * base["environment"]["target_availability"]
+                    for m in stage_metrics.values()
+                ),
+            }
+            if include_metrics:
+                payload["metrics"] = stage_metrics
+
+            yield (json.dumps(payload, ensure_ascii=False) + "\n").encode("utf-8")
+
+        yield (json.dumps(
+            {"done": True, "stages": len(spec)}, ensure_ascii=False
+        ) + "\n").encode("utf-8")
+
+    return StreamingResponse(
+        stream(),
+        media_type="application/x-ndjson",
+        headers={"X-Accel-Buffering": "no"},  # disable proxy buffering
+    )
+
+
+# ================================================================
+#  HTTP: compare  (NEW)
+# ================================================================
+
+@app.post("/api/compare", tags=["compare"])
+async def api_compare_files(
+    files: list[UploadFile] = File(..., description="Two or more scenario JSONs"),
+    fmt: str = Query("json", pattern="^(json|csv)$"),
+):
+    """
+    Upload N >= 2 scenarios, get a comparison of their per-client metrics.
+
+    Query params:
+      fmt : "json" (default) or "csv"
+    """
+    if len(files) < 2:
+        raise HTTPException(400, "at least two files are required")
+
+    scenarios = []
+    names = []
+    for f in files:
+        raw = await f.read()
+        scen = _parse_uploaded_json(raw)
+        # Cap applies to every uploaded scenario in the comparison.
+        _enforce_scenario_limit(scen, source=f.filename or f"scenario_{len(scenarios)+1}")
+        try:
+            geometry.validate(scen)
+        except ValueError as exc:
+            raise HTTPException(400, f"{f.filename}: invalid scenario: {exc}")
+        scenarios.append(scen)
+        names.append(f.filename or f"scenario_{len(scenarios)}")
+
+    # Evaluate all scenarios in parallel.
+    metric_lists = await asyncio.gather(*[
+        _run_blocking(metrics_mod.client_metrics, s) for s in scenarios
+    ])
+
+    # Collect all client ids across all scenarios.
+    all_clients = sorted({
+        cid for m in metric_lists for cid in m.keys()
+    })
+
+    # Build a per-client, per-scenario table.
+    rows = []
+    for cid in all_clients:
+        row = {"client_id": cid}
+        for name, m in zip(names, metric_lists):
+            row[name] = m.get(cid, {})
+        rows.append(row)
+
+    # Also a summary per scenario (mean availability, min availability).
+    summaries = []
+    for name, m in zip(names, metric_lists):
+        if not m:
+            summaries.append({
+                "name": name, "mean_availability": None,
+                "min_availability": None, "mean_visibility": None,
+            })
+            continue
+        avails = [v["gateway_availability_pct"] for v in m.values()]
+        viss = [v["visibility_pct"] for v in m.values()]
+        summaries.append({
+            "name": name,
+            "mean_availability": sum(avails) / len(avails),
+            "min_availability": min(avails),
+            "mean_visibility": sum(viss) / len(viss),
+        })
+
+    # Pairwise deltas against the first scenario (baseline).
+    baseline_name = names[0]
+    baseline = metric_lists[0]
+    pairwise = []
+    for cid in all_clients:
+        base_m = baseline.get(cid, {})
+        for name, m in zip(names[1:], metric_lists[1:]):
+            other = m.get(cid, {})
+            pairwise.append({
+                "client_id": cid,
+                "baseline": baseline_name,
+                "other": name,
+                "availability_delta":
+                    (other.get("gateway_availability_pct", 0)
+                     - base_m.get("gateway_availability_pct", 0))
+                    if other and base_m else None,
+                "visibility_delta":
+                    (other.get("visibility_pct", 0)
+                     - base_m.get("visibility_pct", 0))
+                    if other and base_m else None,
+                "max_interruption_delta_s":
+                    (other.get("max_interruption_s", 0)
+                     - base_m.get("max_interruption_s", 0))
+                    if other and base_m else None,
+            })
+
+    result = {
+        "scenarios": names,
+        "clients": all_clients,
+        "rows": rows,
+        "summaries": summaries,
+        "pairwise_vs_baseline": pairwise,
+    }
+
+    if fmt == "json":
+        return result
+
+    # ---- CSV branch ----
+    buf = io.StringIO()
+    w = csv.writer(buf)
+
+    # Summary block
+    w.writerow(["section", "scenario", "mean_availability",
+                "min_availability", "mean_visibility"])
+    for s in summaries:
+        w.writerow([
+            "summary", s["name"],
+            f"{s['mean_availability']:.4f}" if s["mean_availability"] is not None else "",
+            f"{s['min_availability']:.4f}" if s["min_availability"] is not None else "",
+            f"{s['mean_visibility']:.4f}" if s["mean_visibility"] is not None else "",
+        ])
+    w.writerow([])
+
+    # Per-client block
+    header = ["section", "client_id"]
+    for name in names:
+        header += [f"{name}.visibility_pct", f"{name}.availability_pct",
+                   f"{name}.max_interruption_s", f"{name}.avg_hops"]
+    w.writerow(header)
+    for cid in all_clients:
+        row = ["client", cid]
+        for m in metric_lists:
+            v = m.get(cid, {})
+            row += [
+                f"{v.get('visibility_pct', '')}",
+                f"{v.get('gateway_availability_pct', '')}",
+                f"{v.get('max_interruption_s', '')}",
+                f"{v.get('avg_hops', '') if v.get('avg_hops') is not None else ''}",
+            ]
+        w.writerow(row)
+    w.writerow([])
+
+    # Pairwise block
+    w.writerow(["section", "client_id", "baseline", "other",
+                "availability_delta", "visibility_delta",
+                "max_interruption_delta_s"])
+    for p in pairwise:
+        w.writerow([
+            "pairwise", p["client_id"], p["baseline"], p["other"],
+            f"{p['availability_delta']:.4f}" if p["availability_delta"] is not None else "",
+            f"{p['visibility_delta']:.4f}" if p["visibility_delta"] is not None else "",
+            f"{p['max_interruption_delta_s']:.0f}" if p["max_interruption_delta_s"] is not None else "",
+        ])
+
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="comparison.csv"'},
+    )
 
 
 # ================================================================
