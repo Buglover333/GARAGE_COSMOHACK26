@@ -26,6 +26,7 @@ export interface EarthSceneHandle {
 
 interface EarthSceneProps {
   config: ConstellationConfig | null;
+  frameTimeSeconds: number;
   satellites: Satellite[];
   groundStations: GroundStation[];
   activeRoute: CommunicationRoute | null;
@@ -38,6 +39,7 @@ interface EarthSceneProps {
 
 export const EarthScene = forwardRef<EarthSceneHandle, EarthSceneProps>(({
   config,
+  frameTimeSeconds,
   satellites,
   groundStations,
   activeRoute,
@@ -269,14 +271,19 @@ export const EarthScene = forwardRef<EarthSceneHandle, EarthSceneProps>(({
 
     if (!layers.showOrbits || !config) return;
 
-    const planes = generateOrbitPlanes(config, 128);
+    const planes = generateOrbitPlanes(config, frameTimeSeconds, 128);
+    const routeSatelliteIds = new Set(activeRoute?.satelliteHops ?? []);
+    const routePlaneIndexes = new Set(
+      satellites
+        .filter(satellite => routeSatelliteIds.has(satellite.id))
+        .map(satellite => satellite.planeIndex),
+    );
 
     planes.forEach(plane => {
       const points = plane.points.map(p => new THREE.Vector3(p[0], p[1], p[2]));
       const geometry = new THREE.BufferGeometry().setFromPoints(points);
 
-      // Check if this plane contains in-route satellites (e.g. SAT-12 or SAT-18)
-      const isRoutePlane = plane.planeIndex === 1 || plane.planeIndex === 2;
+      const isRoutePlane = routePlaneIndexes.has(plane.planeIndex);
 
       const material = new THREE.LineBasicMaterial({
         color: isRoutePlane ? 0x0ea5e9 : 0x0284c7,
@@ -288,7 +295,7 @@ export const EarthScene = forwardRef<EarthSceneHandle, EarthSceneProps>(({
       const line = new THREE.LineLoop(geometry, material);
       group.add(line);
     });
-  }, [config, layers.showOrbits]);
+  }, [config, frameTimeSeconds, layers.showOrbits, satellites, activeRoute]);
 
   // Update Ground Stations Markers
   useEffect(() => {

@@ -1,7 +1,7 @@
 import { CommunicationRoute, ConstellationConfig, GroundStation, Satellite } from '../types/simulation';
 import { EARTH_RADIUS_SCENE, REAL_EARTH_RADIUS_KM, vector3ToLatLon } from '../utils/orbitalMechanics';
 
-interface PlaneDto { id: string; raan_deg: number; phase_deg: number }
+export interface PlaneDto { id: string; raan_deg: number; phase_deg: number }
 interface SatelliteDto { id: string; plane_id: string; slot_deg: number; launch_batch: number }
 interface GroundSiteDto { id: string; name: string; role: 'gateway' | 'client'; lat_deg: number; lon_deg: number }
 
@@ -106,10 +106,12 @@ export function toConfig(scenario: ScenarioDto): ConstellationConfig {
       : 0,
     altitudeKm: scenario.environment.altitude_km,
     inclinationDeg: scenario.environment.inclination_deg,
-    raanSpreadDeg: scenario.design.planes.length > 1
-      ? Math.abs(scenario.design.planes[1].raan_deg - scenario.design.planes[0].raan_deg)
-      : 0,
-    phasingDeg: scenario.design.planes[0]?.phase_deg ?? 0,
+    earthAngle0Deg: scenario.environment.earth_angle0_deg,
+    orbitPlanes: scenario.design.planes.map(plane => ({
+      id: plane.id,
+      raanDeg: plane.raan_deg,
+      phaseDeg: plane.phase_deg,
+    })),
     deploymentBatch: `${scenario.design.launch_stage} / 3`,
     launchedCount: launched,
     islEnabled: scenario.environment.isl_range_km > 0,

@@ -12,7 +12,8 @@ import {
   Rocket,
   CheckCircle2,
   Sliders,
-  Eye
+  Eye,
+  Settings2
 } from 'lucide-react';
 import { ConstellationConfig, Satellite } from '../types/simulation';
 import { formatTimeSeconds } from '../utils/orbitalMechanics';
@@ -22,6 +23,7 @@ interface ConfigurationPanelProps {
   satellites: Satellite[];
   simulationTime: number;
   onFocusSatellite: (satId: string) => void;
+  onEditPlanes: () => void;
   lang: 'ru' | 'en';
 }
 
@@ -30,6 +32,7 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
   satellites,
   simulationTime,
   onFocusSatellite,
+  onEditPlanes,
   lang
 }) => {
   const [isCollapsed, setIsCollapsed] = useState(false);
@@ -166,7 +169,12 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                     <Compass className="w-3.5 h-3.5 text-slate-400" />
                     <span>{t.raan}</span>
                   </div>
-                  <span className="font-mono-data font-semibold text-white">{config.raanSpreadDeg}°</span>
+                  <span
+                    className="max-w-40 truncate text-right font-mono-data font-semibold text-white"
+                    title={config.orbitPlanes.map(plane => `${plane.id}: ${plane.raanDeg}°`).join(', ')}
+                  >
+                    {config.orbitPlanes.map(plane => plane.raanDeg).join('°, ')}°
+                  </span>
                 </div>
 
                 <div className="flex items-center justify-between text-slate-300">
@@ -174,9 +182,21 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
                     <Orbit className="w-3.5 h-3.5 text-slate-400" />
                     <span>{t.phasing}</span>
                   </div>
-                  <span className="font-mono-data font-semibold text-white">{config.phasingDeg}°</span>
+                  <span
+                    className="max-w-40 truncate text-right font-mono-data font-semibold text-white"
+                    title={config.orbitPlanes.map(plane => `${plane.id}: ${plane.phaseDeg}°`).join(', ')}
+                  >
+                    {config.orbitPlanes.map(plane => plane.phaseDeg).join('°, ')}°
+                  </span>
                 </div>
               </div>
+              <button
+                onClick={onEditPlanes}
+                className="mt-3 w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-700 hover:border-cyan-500/50 text-xs font-semibold text-slate-200"
+              >
+                <Settings2 className="w-3.5 h-3.5 text-cyan-400" />
+                {lang === 'ru' ? 'Настроить плоскости' : 'Configure planes'}
+              </button>
             </div>
 
             {/* Deployment Stage */}

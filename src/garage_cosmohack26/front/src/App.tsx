@@ -9,8 +9,9 @@ import { ViewControlsOverlay } from './components/ViewControlsOverlay';
 import { RouteInspectorModal } from './components/RouteInspectorModal';
 import { SatelliteDetailPopup } from './components/SatelliteDetailPopup';
 import { CreateProjectModal } from './components/CreateProjectModal';
+import { PlaneEditorModal } from './components/PlaneEditorModal';
 import { CommunicationRoute, ConstellationConfig, GroundStation, Satellite, SceneLayers, SimulationTime } from './types/simulation';
-import { ScenarioDto, simulationApi, toConfig, toRoutes, toSatellites, toStations } from './api/simulation';
+import { PlaneDto, ScenarioDto, simulationApi, toConfig, toRoutes, toSatellites, toStations } from './api/simulation';
 
 export default function App() {
   const [config, setConfig] = useState<ConstellationConfig | null>(null);
@@ -27,22 +28,30 @@ export default function App() {
     speed: 10,
     horizonSeconds: 86400,
   });
+  const [frameTimeSeconds, setFrameTimeSeconds] = useState(0);
   const [layers, setLayers] = useState<SceneLayers>({ showOrbits: true, showCoverageCones: false, showLabels: true });
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
   const [createMode, setCreateMode] = useState<'manual' | 'file'>('manual');
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isPlaneEditorOpen, setIsPlaneEditorOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const earthSceneRef = useRef<EarthSceneHandle>(null);
   const scenarioRef = useRef<ScenarioDto | null>(null);
   const activeRouteIdRef = useRef<string | null>(null);
+  const renderedStepRef = useRef<number | null>(null);
+  const requestedSeekRef = useRef<number | null>(null);
 
-  const refreshFrames = useCallback(async () => {
+  const refreshFrames = useCallback(async (force = false) => {
     const currentScenario = scenarioRef.current;
     if (!currentScenario) return;
     const [telemetry, routeFrame] = await Promise.all([
       simulationApi.getTelemetry(),
       simulationApi.getRoutes(),
     ]);
+    const stepSeconds = telemetry.step_s;
+    const stepIndex = Math.floor(telemetry.t_s / stepSeconds);
+    if (!force && renderedStepRef.current === stepIndex) return;
+    renderedStepRef.current = stepIndex;
     const nextRoutes = toRoutes(routeFrame);
     const active = nextRoutes.find(route => route.id === activeRouteIdRef.current)
       ?? nextRoutes.find(route => route.status !== 'offline')
@@ -52,9 +61,10 @@ export default function App() {
     setActiveRouteId(active?.id ?? null);
     setRoutes(nextRoutes);
     setSatellites(toSatellites(telemetry, currentScenario, active));
+    setFrameTimeSeconds(telemetry.t_s);
     setSimulationTime(previous => ({
       ...previous,
-      timeSeconds: telemetry.t_s,
+      timeSeconds: stepIndex * stepSeconds,
       horizonSeconds: telemetry.horizon_s,
     }));
   }, []);
@@ -72,11 +82,15 @@ export default function App() {
 
   useEffect(() => {
     if (!scenario) return;
+    const intervalMs = Math.max(
+      250,
+      (scenario.environment.step_s / simulationTime.speed) * 1000,
+    );
     const timer = window.setInterval(() => {
       void refreshFrames().catch(cause => setError(cause instanceof Error ? cause.message : String(cause)));
-    }, 500);
+    }, intervalMs);
     return () => window.clearInterval(timer);
-  }, [scenario, refreshFrames]);
+  }, [scenario, simulationTime.speed, refreshFrames]);
 
   useEffect(() => {
     if (!selectedSatellite) return;
@@ -110,11 +124,23 @@ export default function App() {
   }, [satellites]);
 
   const seek = useCallback(async (seconds: number) => {
+    const currentScenario = scenarioRef.current;
+    if (!currentScenario) return;
+    const { step_s: step, horizon_s: horizon } = currentScenario.environment;
+    const snappedSeconds = Math.min(
+      horizon - step,
+      Math.max(0, Math.round(seconds / step) * step),
+    );
+    if (requestedSeekRef.current === snappedSeconds) return;
+    requestedSeekRef.current = snappedSeconds;
     try {
-      await simulationApi.patchScenario({ seek_s: seconds });
-      await refreshFrames();
+      await simulationApi.patchScenario({ seek_s: snappedSeconds });
+      renderedStepRef.current = null;
+      await refreshFrames(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      requestedSeekRef.current = null;
     }
   }, [refreshFrames]);
 
@@ -131,16 +157,37 @@ export default function App() {
     setError(null);
     await simulationApi.replaceScenario(newScenario);
     await simulationApi.saveScenario(newScenario.meta.id, newScenario.meta.title);
+    await simulationApi.patchScenario({ playback: simulationTime.speed });
     const response = await simulationApi.getScenario();
     await applyScenario(response.scenario);
-    await refreshFrames();
-  }, [applyScenario, refreshFrames]);
+    renderedStepRef.current = null;
+    await refreshFrames(true);
+  }, [applyScenario, refreshFrames, simulationTime.speed]);
+
+  const updatePlanes = useCallback(async (planes: PlaneDto[]) => {
+    const currentScenario = scenarioRef.current;
+    if (!currentScenario) throw new Error('Сначала создайте или загрузите проект');
+    const updatedScenario: ScenarioDto = {
+      ...currentScenario,
+      design: { ...currentScenario.design, planes },
+    };
+    setError(null);
+    await simulationApi.replaceScenario(updatedScenario);
+    await simulationApi.saveScenario(updatedScenario.meta.id, updatedScenario.meta.title);
+    await simulationApi.patchScenario({ playback: simulationTime.speed });
+    const response = await simulationApi.getScenario();
+    await applyScenario(response.scenario);
+    renderedStepRef.current = null;
+    setSelectedSatellite(null);
+    await refreshFrames(true);
+  }, [applyScenario, refreshFrames, simulationTime.speed]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#03060d] text-slate-100 font-sans">
       <EarthScene
         ref={earthSceneRef}
         config={config}
+        frameTimeSeconds={frameTimeSeconds}
         satellites={satellites}
         groundStations={stations}
         activeRoute={activeRoute}
@@ -164,6 +211,7 @@ export default function App() {
         satellites={satellites}
         simulationTime={simulationTime.timeSeconds}
         onFocusSatellite={focusSatellite}
+        onEditPlanes={() => setIsPlaneEditorOpen(true)}
         lang="ru"
       />
       <NetworkStatusPanel
@@ -214,6 +262,12 @@ export default function App() {
         initialMode={createMode}
         onClose={() => setIsCreateModalOpen(false)}
         onCreate={createProject}
+      />
+      <PlaneEditorModal
+        isOpen={isPlaneEditorOpen}
+        scenario={scenario}
+        onClose={() => setIsPlaneEditorOpen(false)}
+        onSave={updatePlanes}
       />
       {error && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 rounded-lg border border-rose-500/50 bg-rose-950/90 px-4 py-2 text-xs text-rose-200">

@@ -39,8 +39,8 @@ export interface ConstellationConfig {
   satsPerPlane: number;
   altitudeKm: number;
   inclinationDeg: number;
-  raanSpreadDeg: number;
-  phasingDeg: number;
+  earthAngle0Deg: number;
+  orbitPlanes: Array<{ id: string; raanDeg: number; phaseDeg: number }>;
   deploymentBatch: string;
   launchedCount: number;
   islEnabled: boolean; // Inter-satellite links

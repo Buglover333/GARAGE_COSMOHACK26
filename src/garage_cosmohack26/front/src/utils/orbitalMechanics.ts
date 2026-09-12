@@ -2,6 +2,7 @@ import { ConstellationConfig } from '../types/simulation';
 
 export const EARTH_RADIUS_SCENE = 5.0;
 export const REAL_EARTH_RADIUS_KM = 6371.0;
+const SIDEREAL_DAY_SECONDS = 86164.09054;
 
 export function latLonToVector3(lat: number, lon: number, radius: number): [number, number, number] {
   const phi = (90 - lat) * (Math.PI / 180);
@@ -25,25 +26,36 @@ export function vector3ToLatLon(x: number, y: number, z: number): { lat: number;
 
 export function generateOrbitPlanes(
   config: ConstellationConfig,
+  timeSeconds: number,
   segments = 96,
 ): Array<{ planeIndex: number; points: [number, number, number][] }> {
   const result: Array<{ planeIndex: number; points: [number, number, number][] }> = [];
   const radius = EARTH_RADIUS_SCENE * (1 + config.altitudeKm / REAL_EARTH_RADIUS_KM);
   const inclination = (config.inclinationDeg * Math.PI) / 180;
-  for (let planeIndex = 0; planeIndex < config.planes; planeIndex += 1) {
-    const raan = ((planeIndex * 360) / Math.max(config.planes, 1)) * Math.PI / 180;
+  const earthAngle = (config.earthAngle0Deg * Math.PI) / 180
+    + (2 * Math.PI * timeSeconds) / SIDEREAL_DAY_SECONDS;
+  const cosEarth = Math.cos(earthAngle);
+  const sinEarth = Math.sin(earthAngle);
+  for (let planeIndex = 0; planeIndex < config.orbitPlanes.length; planeIndex += 1) {
+    const raan = config.orbitPlanes[planeIndex].raanDeg * Math.PI / 180;
+    const cosRaan = Math.cos(raan);
+    const sinRaan = Math.sin(raan);
     const points: [number, number, number][] = [];
     for (let segment = 0; segment <= segments; segment += 1) {
       const theta = (segment / segments) * Math.PI * 2;
-      const xOrbital = radius * Math.cos(theta);
-      const zOrbital = radius * Math.sin(theta);
-      const xInclined = xOrbital;
-      const yInclined = zOrbital * Math.sin(inclination);
-      const zInclined = zOrbital * Math.cos(inclination);
+      const cosPosition = Math.cos(theta);
+      const sinPosition = Math.sin(theta);
+      // Same inertial formula as back/geometry.py.
+      const inertialX = radius * (cosRaan * cosPosition - sinRaan * sinPosition * Math.cos(inclination));
+      const inertialY = radius * (sinRaan * cosPosition + cosRaan * sinPosition * Math.cos(inclination));
+      const inertialZ = radius * sinPosition * Math.sin(inclination);
+      // Convert ECI to the backend's Earth-fixed frame, then to Three.js (X, Z, -Y).
+      const fixedX = inertialX * cosEarth + inertialY * sinEarth;
+      const fixedY = -inertialX * sinEarth + inertialY * cosEarth;
       points.push([
-        xInclined * Math.cos(raan) + zInclined * Math.sin(raan),
-        yInclined,
-        -xInclined * Math.sin(raan) + zInclined * Math.cos(raan),
+        fixedX,
+        inertialZ,
+        -fixedY,
       ]);
     }
     result.push({ planeIndex, points });
