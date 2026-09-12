@@ -12,7 +12,7 @@
     "step_s": 120,
     "min_elevation_deg": 10.0,
     "isl_range_km": 3000.0,
-    "target_availability": 0.9
+    "target_availability": 0.1
   },
   "design": {
     "launch_stage": 3,
@@ -354,6 +354,12 @@
       "lon_deg": 130.0
     }
   ],
-  "failures": [],
+  "failures": [
+    {
+      "satellite_id": "S01",
+      "start_s": 120,
+      "end_s": 11111
+    }
+  ],
   "gateway_outages": []
 }
