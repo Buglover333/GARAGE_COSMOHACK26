@@ -6,7 +6,7 @@ interface LegendOverlayProps {
 }
 
 export const LegendOverlay: React.FC<LegendOverlayProps> = ({ lang }) => {
-  const [isOpen, setIsOpen] = useState(true);
+  const [isOpen, setIsOpen] = useState(false);
 
   const t = {
     activeSat: lang === 'ru' ? 'Активный спутник' : 'Active Satellite',

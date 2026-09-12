@@ -9,6 +9,7 @@ import { ViewControlsOverlay } from './components/ViewControlsOverlay';
 import { RouteInspectorModal } from './components/RouteInspectorModal';
 import { SatelliteDetailPopup } from './components/SatelliteDetailPopup';
 import { CreateProjectModal } from './components/CreateProjectModal';
+import { ComparisonModal } from './components/ComparisonModal';
 import { CommunicationRoute, ConstellationConfig, GroundStation, Satellite, SceneLayers, SimulationTime } from './types/simulation';
 import { ConfigSummaryDto, ScenarioDto, simulationApi, toConfig, toRoutes, toSatellites, toStations } from './api/simulation';
 
@@ -31,6 +32,7 @@ export default function App() {
   const [layers, setLayers] = useState<SceneLayers>({ showOrbits: true, showCoverageCones: false, showLabels: true });
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
+  const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
   const [modalScenario, setModalScenario] = useState<ScenarioDto | null>(null);
   const [savedConfigs, setSavedConfigs] = useState<ConfigSummaryDto[]>([]);
   const [loadingConfigId, setLoadingConfigId] = useState<string | null>(null);
@@ -224,6 +226,7 @@ export default function App() {
           setIsCreateModalOpen(true);
         }}
         onLoadProject={id => void loadProject(id)}
+        onOpenComparison={() => setIsComparisonModalOpen(true)}
         lang="ru"
       />
       <ConfigurationPanel
@@ -284,6 +287,12 @@ export default function App() {
         scenario={modalScenario}
         onClose={() => setIsCreateModalOpen(false)}
         onSave={createProject}
+      />
+      <ComparisonModal
+        isOpen={isComparisonModalOpen}
+        configs={savedConfigs}
+        activeConfigId={config?.id ?? null}
+        onClose={() => setIsComparisonModalOpen(false)}
       />
       {error && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 z-50 rounded-lg border border-rose-500/50 bg-rose-950/90 px-4 py-2 text-xs text-rose-200">

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { ChevronDown, FolderOpen, Maximize2, Minimize2, Orbit, Plus } from 'lucide-react';
+import { ChevronDown, FolderOpen, GitCompareArrows, Maximize2, Minimize2, Orbit, Plus } from 'lucide-react';
 import { ConfigSummaryDto } from '../api/simulation';
 import { ConstellationConfig, SimulationTime } from '../types/simulation';
 import { formatTimeSeconds } from '../utils/orbitalMechanics';
@@ -11,6 +11,7 @@ interface Props {
   loadingConfigId: string | null;
   onCreateProject: () => void;
   onLoadProject: (id: string) => void;
+  onOpenComparison: () => void;
   lang: 'ru' | 'en';
 }
 
@@ -21,6 +22,7 @@ export const Header = ({
   loadingConfigId,
   onCreateProject,
   onLoadProject,
+  onOpenComparison,
   lang,
 }: Props) => {
   const [fullscreen, setFullscreen] = useState(false);
@@ -129,8 +131,19 @@ export const Header = ({
       {config ? formatTimeSeconds(simulationTime.timeSeconds) : '--:--:--'}
     </div>
 
-    <button onClick={toggleFullscreen} className="w-8 h-8 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 flex items-center justify-center text-slate-400 hover:text-white">
-      {fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
-    </button>
+    <div className="flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onOpenComparison}
+        className="h-8 px-3 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 flex items-center gap-2 text-xs text-slate-300 hover:text-white"
+        title={lang === 'ru' ? 'Сравнить сохранённые конфигурации' : 'Compare saved configurations'}
+      >
+        <GitCompareArrows className="w-4 h-4 text-cyan-400" />
+        <span className="hidden md:inline">{lang === 'ru' ? 'Сравнение' : 'Compare'}</span>
+      </button>
+      <button onClick={toggleFullscreen} className="w-8 h-8 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 flex items-center justify-center text-slate-400 hover:text-white">
+        {fullscreen ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+      </button>
+    </div>
   </header>;
 };
