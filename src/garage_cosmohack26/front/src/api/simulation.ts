@@ -1,5 +1,6 @@
 import { CommunicationRoute, ConstellationConfig, GroundStation, Satellite } from '../types/simulation';
 import { EARTH_RADIUS_SCENE, REAL_EARTH_RADIUS_KM, vector3ToLatLon } from '../utils/orbitalMechanics';
+import { localScenarioStore } from './localScenarioStore';
 
 export interface PlaneDto { id: string; raan_deg: number; phase_deg: number }
 interface SatelliteDto { id: string; plane_id: string; slot_deg: number; launch_batch: number }
@@ -81,22 +82,38 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const simulationApi = {
-  getConfigs: () => request<ConfigSummaryDto[]>('/api/configs'),
-  getConfig: (id: string) => request<ScenarioDto>(`/api/configs/${encodeURIComponent(id)}`),
-  loadScenario: (id: string) => request<{ loaded: string }>(
-    `/api/scenario/load/${encodeURIComponent(id)}`,
-    { method: 'POST' },
-  ),
+  // --- config library: backed by localStorage, per-browser ---
+  getConfigs: async (): Promise<ConfigSummaryDto[]> => {
+    return localScenarioStore.list();
+  },
+  getConfig: async (id: string): Promise<ScenarioDto> => {
+    return localScenarioStore.get(id);
+  },
+  saveScenario: async (id: string, title: string): Promise<void> => {
+    // The scenario must already be active; pull it and store it locally.
+    const { scenario } = await request<{ scenario: ScenarioDto }>('/api/scenario');
+    localScenarioStore.save(scenario, title);
+  },
+  deleteConfig: async (id: string): Promise<void> => {
+    if (!localScenarioStore.delete(id)) throw new Error(`scenario ${id} not found`);
+  },
+
+  // --- active scenario: still on the backend ---
+  loadScenario: async (id: string): Promise<{ loaded: string }> => {
+    const scenario = localScenarioStore.get(id);
+    await request('/api/scenario', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(scenario),
+    });
+    return { loaded: id };
+  },
   getScenario: () => request<{ meta: { config_id: string | null }; scenario: ScenarioDto }>('/api/scenario'),
   replaceScenario: (scenario: ScenarioDto) => request('/api/scenario', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(scenario),
   }),
-  saveScenario: (id: string, title: string) => request(
-    `/api/configs?config_id=${encodeURIComponent(id)}&title=${encodeURIComponent(title)}`,
-    { method: 'POST' },
-  ),
   getTelemetry: () => request<TelemetryDto>('/api/telemetry'),
   getRoutes: () => request<RoutesDto>('/api/routes'),
   patchScenario: (patch: Record<string, unknown>) => request('/api/scenario/patch', {

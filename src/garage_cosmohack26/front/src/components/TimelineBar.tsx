@@ -83,7 +83,7 @@ export const TimelineBar: React.FC<TimelineBarProps> = ({
 
           {/* Speed selector */}
           <div className="flex items-center gap-0.5 ml-1 p-1 bg-slate-900/90 rounded-xl border border-slate-800">
-            {([1, 10, 100] as const).map(spd => (
+            {([10, 50, 100] as const).map(spd => (
               <button
                 key={spd}
                 onClick={() => onSpeedChange(spd)}

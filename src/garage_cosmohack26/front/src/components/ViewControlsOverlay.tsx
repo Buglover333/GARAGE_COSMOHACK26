@@ -89,19 +89,6 @@ export const ViewControlsOverlay: React.FC<ViewControlsOverlayProps> = ({
           <span>{t.orbits}</span>
         </button>
 
-        {/* Coverage Cones Toggle */}
-        <button
-          onClick={() => onToggleLayer('showCoverageCones')}
-          className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
-            layers.showCoverageCones
-              ? 'bg-blue-600 text-white shadow-md shadow-blue-600/30 font-semibold'
-              : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900/60'
-          }`}
-        >
-          <span className={`w-1.5 h-1.5 rounded-full ${layers.showCoverageCones ? 'bg-white' : 'bg-slate-500'}`} />
-          <span>{t.coverage}</span>
-        </button>
-
         {/* Labels Toggle */}
         <button
           onClick={() => onToggleLayer('showLabels')}

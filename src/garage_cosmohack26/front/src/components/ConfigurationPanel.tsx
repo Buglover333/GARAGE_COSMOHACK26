@@ -226,32 +226,58 @@ export const ConfigurationPanel: React.FC<ConfigurationPanelProps> = ({
             </div>
 
             {/* Failure Simulation */}
-            {activeFailure && (
+            {config.failures.length > 0 && (
               <div className="pt-2 border-t border-slate-800/70">
-                <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider mb-2">
-                  {t.failureSim}
+                <div className="text-[11px] font-medium text-slate-400 uppercase tracking-wider mb-2 flex items-center justify-between">
+                  <span>{t.failureSim}</span>
+                  <span className="font-mono-data text-slate-500 normal-case tracking-normal">
+                    {config.failures.length}
+                  </span>
                 </div>
-                <div
-                  onClick={() => onFocusSatellite(activeFailure.satelliteId)}
-                  className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
-                    isFaultActiveNow
-                      ? 'bg-rose-950/40 border-rose-500/50 hover:bg-rose-900/40 text-rose-300 shadow-md shadow-rose-950/40'
-                      : 'bg-slate-900/80 border-slate-800 hover:bg-slate-800 text-slate-300'
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-1.5 font-semibold text-xs">
-                      <AlertTriangle className={`w-3.5 h-3.5 ${isFaultActiveNow ? 'text-rose-400 animate-bounce' : 'text-amber-400'}`} />
-                      <span>{activeFailure.satelliteId}</span>
-                    </div>
-                    <span className="text-[11px] font-mono-data font-medium text-slate-400">
-                      {formatTimeSeconds(activeFailure.startSeconds).slice(0, 5)} – {formatTimeSeconds(activeFailure.endSeconds).slice(0, 5)}
-                    </span>
-                  </div>
-                  <div className="text-[10px] text-slate-400 leading-relaxed flex items-center justify-between mt-1">
-                    <span>{isFaultActiveNow ? (lang === 'ru' ? 'Активный отказ' : 'Active failure') : (lang === 'ru' ? 'Запланированное окно отказа' : 'Scheduled failure window')}</span>
-                    <Eye className="w-3 h-3 text-slate-400 ml-1 shrink-0" />
-                  </div>
+                <div className="max-h-48 overflow-y-auto pr-1 space-y-1.5 scrollbar-thin">
+                  {config.failures.map(failure => {
+                    const isActiveNow =
+                      simulationTime >= failure.startSeconds &&
+                      simulationTime <= failure.endSeconds;
+                    return (
+                      <div
+                        key={failure.id}
+                        onClick={() => onFocusSatellite(failure.satelliteId)}
+                        className={`p-2.5 rounded-xl border transition-all cursor-pointer ${
+                          isActiveNow
+                            ? 'bg-rose-950/40 border-rose-500/50 hover:bg-rose-900/40 text-rose-300 shadow-md shadow-rose-950/40'
+                            : 'bg-slate-900/80 border-slate-800 hover:bg-slate-800 text-slate-300'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-1.5 font-semibold text-xs">
+                            <AlertTriangle
+                              className={`w-3.5 h-3.5 ${
+                                isActiveNow ? 'text-rose-400 animate-bounce' : 'text-amber-400'
+                              }`}
+                            />
+                            <span>{failure.satelliteId}</span>
+                          </div>
+                          <span className="text-[11px] font-mono-data font-medium text-slate-400">
+                            {formatTimeSeconds(failure.startSeconds).slice(0, 5)} –{' '}
+                            {formatTimeSeconds(failure.endSeconds).slice(0, 5)}
+                          </span>
+                        </div>
+                        <div className="text-[10px] text-slate-400 leading-relaxed flex items-center justify-between mt-1">
+                          <span>
+                            {isActiveNow
+                              ? lang === 'ru'
+                                ? 'Активный отказ'
+                                : 'Active failure'
+                              : lang === 'ru'
+                                ? 'Запланированное окно отказа'
+                                : 'Scheduled failure window'}
+                          </span>
+                          <Eye className="w-3 h-3 text-slate-400 ml-1 shrink-0" />
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

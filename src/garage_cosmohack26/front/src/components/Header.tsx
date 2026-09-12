@@ -148,7 +148,6 @@ export const Header = ({
       </button>
       <button
         type="button"
-        disabled={!config}
         onClick={onOpenOptimization}
         className="h-8 px-3 rounded-lg bg-slate-900/80 hover:bg-slate-800 border border-slate-700/60 flex items-center gap-2 text-xs text-slate-300 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
         title={lang === 'ru' ? 'Рассчитать эффективный деплой' : 'Optimize deployment'}

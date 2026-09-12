@@ -14,6 +14,26 @@ import { OptimizationModal } from './components/OptimizationModal';
 import { CommunicationRoute, ConstellationConfig, GroundStation, Satellite, SceneLayers, SimulationTime } from './types/simulation';
 import { ConfigSummaryDto, ScenarioDto, simulationApi, toConfig, toRoutes, toSatellites, toStations } from './api/simulation';
 
+const MOBILE_BREAKPOINT = 900; // px
+
+const MobileBlockedNotice = () => (
+  <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-[#03060d] p-6 text-center text-slate-200">
+    <div className="max-w-sm space-y-3">
+      <div className="text-3xl">🛰️</div>
+      <h1 className="text-lg font-semibold text-white">
+        Мобильная версия сайта не поддерживается
+      </h1>
+      <p className="text-sm leading-relaxed text-slate-400">
+        Этот симулятор оптимизирован для больших экранов и не поддерживает мобильные устройства.
+        Откройте его на компьютере или ноутбуке.
+      </p>
+      <p className="text-xs text-slate-500">
+        Desktop required — please open on a larger screen.
+      </p>
+    </div>
+  </div>
+);
+
 export default function App() {
   const [config, setConfig] = useState<ConstellationConfig | null>(null);
   const [scenario, setScenario] = useState<ScenarioDto | null>(null);
@@ -30,7 +50,10 @@ export default function App() {
     horizonSeconds: 86400,
   });
   const [frameTimeSeconds, setFrameTimeSeconds] = useState(0);
-  const [layers, setLayers] = useState<SceneLayers>({ showOrbits: true, showCoverageCones: false, showLabels: true });
+  const [layers, setLayers] = useState<SceneLayers>({
+    showOrbits: true,
+    showLabels: true,
+  });
   const [isRouteModalOpen, setIsRouteModalOpen] = useState(false);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isComparisonModalOpen, setIsComparisonModalOpen] = useState(false);
@@ -43,20 +66,27 @@ export default function App() {
   const [savedConfigs, setSavedConfigs] = useState<ConfigSummaryDto[]>([]);
   const [loadingConfigId, setLoadingConfigId] = useState<string | null>(null);
   const [disablingSatelliteId, setDisablingSatelliteId] = useState<string | null>(null);
+  const [enablingSatelliteId, setEnablingSatelliteId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [isMobile, setIsMobile] = useState<boolean>(() =>
+    typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT
+  );
+
   const earthSceneRef = useRef<EarthSceneHandle>(null);
   const scenarioRef = useRef<ScenarioDto | null>(null);
   const activeRouteIdRef = useRef<string | null>(null);
   const renderedStepRef = useRef<number | null>(null);
   const requestedSeekRef = useRef<number | null>(null);
 
+  useEffect(() => {
+    const onResize = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
+    window.addEventListener('resize', onResize);
+    return () => window.removeEventListener('resize', onResize);
+  }, []);
+
   const refreshConfigLibrary = useCallback(async () => {
     const configs = await simulationApi.getConfigs();
-    // The bundled example can also exist in the writable directory. Keep the
-    // first item because that is the same precedence used by the backend loader.
-    setSavedConfigs(configs.filter((item, index) => (
-      configs.findIndex(candidate => candidate.id === item.id) === index
-    )));
+    setSavedConfigs(configs);
   }, []);
 
   useEffect(() => {
@@ -180,7 +210,7 @@ export default function App() {
   const activateScenario = useCallback(async (newScenario: ScenarioDto, persist: boolean) => {
     setError(null);
     await simulationApi.replaceScenario(newScenario);
-    if (persist) await simulationApi.saveScenario(newScenario.meta.id, newScenario.meta.title);
+    if (persist) await simulationApi.saveScenario(newScenario, newScenario.meta.title);
     await simulationApi.patchScenario({ playback: simulationTime.speed });
     const response = await simulationApi.getScenario();
     activeRouteIdRef.current = null;
@@ -231,21 +261,14 @@ export default function App() {
     const currentScenario = scenarioRef.current;
     if (!currentScenario) return;
 
-    const startSeconds = Math.min(frameTimeSeconds, currentScenario.environment.horizon_s - 1);
-    const alreadyDisabled = currentScenario.failures.some(failure => (
-      failure.satellite_id === satelliteId
-      && typeof failure.start_s === 'number'
-      && typeof failure.end_s === 'number'
-      && failure.start_s <= startSeconds
-      && startSeconds < failure.end_s
-    ));
-    if (alreadyDisabled) return;
+    // Already disabled? Do nothing.
+    if (currentScenario.failures.some(f => f.satellite_id === satelliteId)) return;
 
     const failures = [
       ...currentScenario.failures,
       {
         satellite_id: satelliteId,
-        start_s: startSeconds,
+        start_s: 0,
         end_s: currentScenario.environment.horizon_s,
         source: 'manual',
       },
@@ -263,7 +286,33 @@ export default function App() {
     } finally {
       setDisablingSatelliteId(null);
     }
-  }, [applyScenario, frameTimeSeconds, refreshFrames]);
+  }, [applyScenario, refreshFrames]);
+
+  const enableSatellite = useCallback(async (satelliteId: string) => {
+    const currentScenario = scenarioRef.current;
+    if (!currentScenario) return;
+
+    const failures = currentScenario.failures.filter(
+      failure => failure.satellite_id !== satelliteId
+    );
+
+    if (failures.length === currentScenario.failures.length) return;
+
+    setError(null);
+    setEnablingSatelliteId(satelliteId);
+    try {
+      await simulationApi.patchScenario({ failures });
+      await applyScenario({ ...currentScenario, failures });
+      renderedStepRef.current = null;
+      await refreshFrames(true);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setEnablingSatelliteId(null);
+    }
+  }, [applyScenario, refreshFrames]);
+
+  if (isMobile) return <MobileBlockedNotice />;
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-[#03060d] text-slate-100 font-sans">
@@ -296,7 +345,7 @@ export default function App() {
         }}
         onOpenMetrics={() => setIsMetricsModalOpen(true)}
         onOpenOptimization={() => {
-          setOptimizationBaseScenario(scenario);
+          setOptimizationBaseScenario(scenario);   // ← may be null, modal handles it
           setIsOptimizationModalOpen(true);
         }}
         lang="ru"
@@ -313,15 +362,15 @@ export default function App() {
         lang="ru"
       />
       <NetworkStatusPanel
-          selectedStation={selectedStation}
-          stations={stations}
-          onSelectStation={selectStation}
-          activeRoute={activeRoute}
-          satellites={satellites}
-          onOpenRouteModal={() => setIsRouteModalOpen(true)}
-          onFocusSatellite={focusSatellite}
-          lang="ru"
-        />
+        selectedStation={selectedStation}
+        stations={stations}
+        onSelectStation={selectStation}
+        activeRoute={activeRoute}
+        satellites={satellites}
+        onOpenRouteModal={() => setIsRouteModalOpen(true)}
+        onFocusSatellite={focusSatellite}
+        lang="ru"
+      />
       <ViewControlsOverlay
         layers={layers}
         onToggleLayer={key => setLayers(previous => ({ ...previous, [key]: !previous[key] }))}
@@ -340,7 +389,9 @@ export default function App() {
         satellite={selectedSatellite}
         onClose={() => setSelectedSatellite(null)}
         onDisableSatellite={id => void disableSatellite(id)}
+        onEnableSatellite={id => void enableSatellite(id)}
         isDisabling={selectedSatellite?.id === disablingSatelliteId}
+        isEnabling={selectedSatellite?.id === enablingSatelliteId}
         lang="ru"
       />
       <RouteInspectorModal
