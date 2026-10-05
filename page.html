@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<title>Constellation — new endpoints test</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #1a1d27;
+    --panel2: #232736;
+    --fg: #e6e8ee;
+    --muted: #8b93a7;
+    --accent: #5b8cff;
+    --ok: #3ecf8e;
+    --err: #ff5c7a;
+    --warn: #ffb547;
+    --border: #2c3143;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    background: var(--bg);
+    color: var(--fg);
+  }
+  header {
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  header h1 { margin: 0; font-size: 16px; font-weight: 600; }
+  header input {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    padding: 6px 10px;
+    border-radius: 6px;
+    width: 260px;
+    font: inherit;
+  }
+  main {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 16px;
+    padding: 16px;
+    align-items: start;
+  }
+  @media (max-width: 1200px) {
+    main { grid-template-columns: 1fr; }
+  }
+  section {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+  }
+  section h2 {
+    margin: 0 0 4px;
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--accent);
+  }
+  label { font-size: 12px; color: var(--muted); display: block; }
+  input[type=file], input[type=text], input[type=number] {
+    width: 100%;
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    color: var(--fg);
+    padding: 6px 8px;
+    border-radius: 6px;
+    font: inherit;
+  }
+  .row { display: flex; gap: 8px; align-items: center; }
+  .row > * { flex: 1; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: 0;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font: inherit;
+    font-weight: 600;
+    cursor: pointer;
+    transition: opacity .15s;
+  }
+  button:hover { opacity: 0.9; }
+  button:disabled { opacity: 0.5; cursor: wait; }
+  button.secondary {
+    background: var(--panel2);
+    color: var(--fg);
+    border: 1px solid var(--border);
+  }
+  pre {
+    background: #0a0c12;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 12px;
+    margin: 0;
+    overflow: auto;
+    max-height: 420px;
+    font-size: 12px;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+  .status { font-size: 12px; color: var(--muted); min-height: 18px; }
+  .status.ok { color: var(--ok); }
+  .status.err { color: var(--err); }
+  .status.warn { color: var(--warn); }
+  .pill {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    background: var(--panel2);
+    color: var(--muted);
+    margin-left: 6px;
+  }
+  .pill.ok { background: #173a2c; color: var(--ok); }
+  .pill.err { background: #3a1a22; color: var(--err); }
+  .stage-list { display: flex; flex-direction: column; gap: 8px; }
+  .stage {
+    background: var(--panel2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+    font-size: 12px;
+  }
+  .stage h3 { margin: 0 0 6px; font-size: 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th, td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--border); }
+  th { color: var(--muted); font-weight: 500; }
+  .delta-pos { color: var(--ok); }
+  .delta-neg { color: var(--err); }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Constellation — endpoint tester</h1>
+  <input id="apiBase" value="http://localhost:8000" />
+</header>
+
+<main>
+
+  <!-- ============== METRICS ============== -->
+  <section>
+    <h2>1. POST /api/metrics</h2>
+    <label>Scenario JSON</label>
+    <input type="file" id="metricsFile" accept="application/json" />
+    <div class="row">
+      <div>
+        <label>Format</label>
+        <select id="metricsFmt" style="width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--fg);padding:6px;border-radius:6px">
+          <option value="json">json</option>
+          <option value="csv">csv</option>
+        </select>
+      </div>
+      <div>
+        <label>Timesteps</label>
+        <select id="metricsSteps" style="width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--fg);padding:6px;border-radius:6px">
+          <option value="true">include</option>
+          <option value="false">exclude</option>
+        </select>
+      </div>
+    </div>
+    <button id="metricsBtn">Run metrics</button>
+    <div class="status" id="metricsStatus"></div>
+    <pre id="metricsOut">—</pre>
+  </section>
+
+  <!-- ============== CALCULATE OPTIMAL ============== -->
+  <section>
+    <h2>2. POST /api/calculate_optimal</h2>
+    <label>Base scenario JSON</label>
+    <input type="file" id="optFile" accept="application/json" />
+    <label>Satellites per plane, per stage (JSON array or CSV)</label>
+    <input type="text" id="optSats" value="8,8,8" />
+    <div class="row">
+      <div>
+        <label>Planes</label>
+        <input type="number" id="optPlanes" value="3" min="1" />
+      </div>
+      <div>
+        <label>Iterations</label>
+        <input type="number" id="optIters" value="50" min="1" />
+      </div>
+      <div>
+        <label>Seed</label>
+        <input type="number" id="optSeed" value="0" />
+      </div>
+    </div>
+    <div class="row">
+      <div>
+        <label>Include metrics</label>
+        <select id="optMetrics" style="width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--fg);padding:6px;border-radius:6px">
+          <option value="true">yes</option>
+          <option value="false">no</option>
+        </select>
+      </div>
+    </div>
+    <button id="optBtn">Calculate optimal (stream)</button>
+    <div class="status" id="optStatus"></div>
+    <div class="stage-list" id="optStages"></div>
+    <pre id="optOut" style="display:none">—</pre>
+  </section>
+
+  <!-- ============== COMPARE ============== -->
+  <section>
+    <h2>3. POST /api/compare</h2>
+    <label>Two or more scenario JSONs</label>
+    <input type="file" id="cmpFiles" accept="application/json" multiple />
+    <label>Format</label>
+    <select id="cmpFmt" style="width:100%;background:var(--panel2);border:1px solid var(--border);color:var(--fg);padding:6px;border-radius:6px">
+      <option value="json">json</option>
+      <option value="csv">csv</option>
+    </select>
+    <button id="cmpBtn">Compare</button>
+    <div class="status" id="cmpStatus"></div>
+    <div id="cmpTable"></div>
+    <pre id="cmpOut" style="display:none">—</pre>
+  </section>
+
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const apiBase = () => $("apiBase").value.replace(/\/+$/, "");
+
+function setStatus(el, msg, cls = "") {
+  el.textContent = msg;
+  el.className = "status " + cls;
+}
+
+function pretty(obj) {
+  return JSON.stringify(obj, null, 2);
+}
+
+function fmtPct(x) {
+  return (x == null) ? "—" : x.toFixed(2) + "%";
+}
+function fmtNum(x, d = 2) {
+  return (x == null) ? "—" : Number(x).toFixed(d);
+}
+
+// ============================================================
+// 1. METRICS
+// ============================================================
+$("metricsBtn").addEventListener("click", async () => {
+  const file = $("metricsFile").files[0];
+  if (!file) { setStatus($("metricsStatus"), "Choose a file first.", "err"); return; }
+
+  const fmt = $("metricsFmt").value;
+  const steps = $("metricsSteps").value;
+
+  const fd = new FormData();
+  fd.append("file", file);
+
+  setStatus($("metricsStatus"), "Running…");
+  $("metricsBtn").disabled = true;
+  $("metricsOut").textContent = "…";
+
+  try {
+    const res = await fetch(
+      `${apiBase()}/api/metrics?fmt=${fmt}&include_timesteps=${steps}`,
+      { method: "POST", body: fd }
+    );
+    if (!res.ok) throw new Error(await res.text());
+
+    if (fmt === "csv") {
+      const text = await res.text();
+      $("metricsOut").textContent = text;
+      setStatus($("metricsStatus"), `OK — ${text.length} bytes of CSV`, "ok");
+    } else {
+      const data = await res.json();
+      // Show a compact summary + first few timesteps.
+      const preview = {
+        summary: data.summary,
+        timesteps_count: data.timesteps ? data.timesteps.length : 0,
+        timesteps_sample: data.timesteps ? data.timesteps.slice(0, 5) : undefined,
+      };
+      $("metricsOut").textContent = pretty(preview);
+      setStatus($("metricsStatus"), `OK — ${Object.keys(data.summary).length} clients`, "ok");
+    }
+  } catch (e) {
+    setStatus($("metricsStatus"), "Error: " + e.message, "err");
+    $("metricsOut").textContent = String(e);
+  } finally {
+    $("metricsBtn").disabled = false;
+  }
+});
+
+// ============================================================
+// 2. CALCULATE OPTIMAL  (NDJSON stream)
+// ============================================================
+$("optBtn").addEventListener("click", async () => {
+  const file = $("optFile").files[0];
+  if (!file) { setStatus($("optStatus"), "Choose a base scenario first.", "err"); return; }
+
+  const fd = new FormData();
+  fd.append("base_file", file);
+  fd.append("satellites_per_plane", $("optSats").value);
+  fd.append("planes", $("optPlanes").value);
+  fd.append("iterations", $("optIters").value);
+  fd.append("seed", $("optSeed").value);
+  fd.append("include_metrics", $("optMetrics").value);
+
+  $("optStages").innerHTML = "";
+  setStatus($("optStatus"), "Streaming…");
+  $("optBtn").disabled = true;
+
+  try {
+    const res = await fetch(`${apiBase()}/api/calculate_optimal`, {
+      method: "POST", body: fd,
+    });
+    if (!res.ok) throw new Error(await res.text());
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+
+      let nl;
+      while ((nl = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, nl).trim();
+        buf = buf.slice(nl + 1);
+        if (!line) continue;
+        let obj;
+        try { obj = JSON.parse(line); } catch { continue; }
+
+        if (obj.done) {
+          setStatus($("optStatus"),
+            `Done — ${obj.stages} stages streamed.`, "ok");
+          continue;
+        }
+        renderOptStage(obj);
+      }
+    }
+    if ($("optStages").children.length === 0) {
+      setStatus($("optStatus"), "Stream ended with no stages.", "warn");
+    }
+  } catch (e) {
+    setStatus($("optStatus"), "Error: " + e.message, "err");
+  } finally {
+    $("optBtn").disabled = false;
+  }
+});
+
+function renderOptStage(stage) {
+  const el = document.createElement("div");
+  el.className = "stage";
+
+  const nSats = stage.scenario?.design?.satellites?.length ?? "?";
+  const target = stage.scenario?.environment?.target_availability ?? 0.9;
+
+  let metricsHtml = "";
+  if (stage.metrics) {
+    metricsHtml = `<table><thead><tr>
+      <th>client</th><th>vis %</th><th>avail %</th><th>max gap s</th><th>hops</th>
+    </tr></thead><tbody>`;
+    for (const [cid, m] of Object.entries(stage.metrics)) {
+      metricsHtml += `<tr>
+        <td>${cid}</td>
+        <td>${fmtPct(m.visibility_pct)}</td>
+        <td>${fmtPct(m.gateway_availability_pct)}</td>
+        <td>${fmtNum(m.max_interruption_s, 0)}</td>
+        <td>${fmtNum(m.avg_hops)}</td>
+      </tr>`;
+    }
+    metricsHtml += `</tbody></table>`;
+  }
+
+  const metCls = stage.met_target ? "ok" : "err";
+  const metTxt = stage.met_target ? "target met" : "below target";
+
+  el.innerHTML = `
+    <h3>Stage ${stage.stage}
+      <span class="pill">${stage.n_sat} sats</span>
+      <span class="pill ${metCls}">${metTxt}</span>
+      <span class="pill">score ${fmtNum(stage.best_score)}</span>
+    </h3>
+    <div style="color:var(--muted);margin-bottom:6px">
+      footprint ${fmtNum(stage.bounds.footprint_radius_km, 0)} km,
+      min sats/plane ${stage.bounds.min_sats_per_plane},
+      used ${stage.bounds.sats_per_plane_used} × ${stage.bounds.raan_step_deg.toFixed(1)}° RAAN step
+    </div>
+    ${metricsHtml}
+    <details style="margin-top:8px">
+      <summary style="cursor:pointer;color:var(--accent)">raw scenario JSON</summary>
+      <pre style="max-height:240px;margin-top:6px">${pretty(stage.scenario)}</pre>
+    </details>
+  `;
+  $("optStages").appendChild(el);
+}
+
+// ============================================================
+// 3. COMPARE
+// ============================================================
+$("cmpBtn").addEventListener("click", async () => {
+  const files = $("cmpFiles").files;
+  if (files.length < 2) {
+    setStatus($("cmpStatus"), "Choose at least two files.", "err");
+    return;
+  }
+  const fmt = $("cmpFmt").value;
+
+  const fd = new FormData();
+  for (const f of files) fd.append("files", f);
+
+  setStatus($("cmpStatus"), `Comparing ${files.length} scenarios…`);
+  $("cmpBtn").disabled = true;
+  $("cmpTable").innerHTML = "";
+  $("cmpOut").style.display = "none";
+
+  try {
+    const res = await fetch(`${apiBase()}/api/compare?fmt=${fmt}`, {
+      method: "POST", body: fd,
+    });
+    if (!res.ok) throw new Error(await res.text());
+
+    if (fmt === "csv") {
+      const text = await res.text();
+      $("cmpOut").style.display = "block";
+      $("cmpOut").textContent = text;
+      setStatus($("cmpStatus"), `OK — ${text.length} bytes of CSV`, "ok");
+    } else {
+      const data = await res.json();
+      renderCompare(data);
+      setStatus($("cmpStatus"), `OK — ${data.scenarios.length} scenarios, ${data.clients.length} clients`, "ok");
+    }
+  } catch (e) {
+    setStatus($("cmpStatus"), "Error: " + e.message, "err");
+  } finally {
+    $("cmpBtn").disabled = false;
+  }
+});
+
+function renderCompare(data) {
+  let html = "";
+
+  // Summary block
+  html += `<h3 style="color:var(--accent);margin:12px 0 4px;font-size:12px">Summary</h3>`;
+  html += `<table><thead><tr>
+    <th>scenario</th><th>mean avail</th><th>min avail</th><th>mean vis</th>
+  </tr></thead><tbody>`;
+  for (const s of data.summaries) {
+    html += `<tr>
+      <td>${s.name}</td>
+      <td>${fmtPct(s.mean_availability)}</td>
+      <td>${fmtPct(s.min_availability)}</td>
+      <td>${fmtPct(s.mean_visibility)}</td>
+    </tr>`;
+  }
+  html += `</tbody></table>`;
+
+  // Per-client block
+  html += `<h3 style="color:var(--accent);margin:12px 0 4px;font-size:12px">Per client</h3>`;
+  html += `<table><thead><tr><th>client</th>`;
+  for (const name of data.scenarios) html += `<th>${name}<br><span style="color:var(--muted)">avail / vis</span></th>`;
+  html += `</tr></thead><tbody>`;
+  for (const row of data.rows) {
+    html += `<tr><td>${row.client_id}</td>`;
+    for (const name of data.scenarios) {
+      const m = row[name] || {};
+      html += `<td>${fmtPct(m.gateway_availability_pct)} / ${fmtPct(m.visibility_pct)}</td>`;
+    }
+    html += `</tr>`;
+  }
+  html += `</tbody></table>`;
+
+  // Pairwise deltas block
+  if (data.pairwise_vs_baseline?.length) {
+    html += `<h3 style="color:var(--accent);margin:12px 0 4px;font-size:12px">Deltas vs baseline</h3>`;
+    html += `<table><thead><tr>
+      <th>client</th><th>vs</th><th>Δavail</th><th>Δvis</th><th>Δmax gap (s)</th>
+    </tr></thead><tbody>`;
+    for (const p of data.pairwise_vs_baseline) {
+      const dAvail = p.availability_delta;
+      const dVis = p.visibility_delta;
+      const dGap = p.max_interruption_delta_s;
+      const clsAvail = dAvail == null ? "" : (dAvail >= 0 ? "delta-pos" : "delta-neg");
+      const clsVis = dVis == null ? "" : (dVis >= 0 ? "delta-pos" : "delta-neg");
+      const clsGap = dGap == null ? "" : (dGap <= 0 ? "delta-pos" : "delta-neg");
+      html += `<tr>
+        <td>${p.client_id}</td>
+        <td>${p.other} <span style="color:var(--muted)">vs</span> ${p.baseline}</td>
+        <td class="${clsAvail}">${dAvail == null ? "—" : (dAvail >= 0 ? "+" : "") + dAvail.toFixed(2) + "%"}</td>
+        <td class="${clsVis}">${dVis == null ? "—" : (dVis >= 0 ? "+" : "") + dVis.toFixed(2) + "%"}</td>
+        <td class="${clsGap}">${dGap == null ? "—" : (dGap >= 0 ? "+" : "") + dGap.toFixed(0)}</td>
+      </tr>`;
+    }
+    html += `</tbody></table>`;
+  }
+
+  $("cmpTable").innerHTML = html;
+}
+</script>
+
+</body>
+</html>
